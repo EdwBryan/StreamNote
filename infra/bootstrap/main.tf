@@ -17,6 +17,9 @@ data "aws_caller_identity" "me" {}
 
 locals {
   repo = "EdwBryan/StreamNote"   # solo este repo puede usar el rol
+  # GitHub firma el "sub" con los IDs de la cuenta y del repo (formato inmutable):
+  # aunque alguien cree otro repo con el mismo nombre, sus IDs no coinciden.
+  repo_inmutable = "EdwBryan@268266098/StreamNote@1435819305"
 }
 
 # 1) Bucket del estado de Terraform (el número de cuenta lo hace único)
@@ -61,7 +64,7 @@ data "aws_iam_policy_document" "trust" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${local.repo}:*"]
+      values   = ["repo:${local.repo_inmutable}:*", "repo:${local.repo}:*"]
     }
   }
 }
