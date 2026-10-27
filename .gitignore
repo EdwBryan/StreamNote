@@ -6,3 +6,5 @@ dist/
 .build/
 e2e/capturas/
 .env
+tfplan
+plan.txt
