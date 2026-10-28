@@ -1,6 +1,4 @@
-# Plan de Terraform en cada Pull Request. No cambia nada en AWS: solo muestra qué haría
-# y lo publica como comentario en el PR para que el equipo lo revise antes del merge.
-#   PR hacia develop -> plan contra dev | hacia qa -> qa | hacia main -> prod
+# Revisión de Terraform en cada Pull Request. No entra a AWS: el rol solo lo asume el deploy de dev.
 name: plan
 
 on:
@@ -8,15 +6,11 @@ on:
     branches: [develop, qa, main]
 
 permissions:
-  id-token: write       # para pedir el token OIDC con el que se entra a AWS (sin llaves)
   contents: read
-  pull-requests: write  # para comentar el plan en el PR
 
 jobs:
   plan:
     runs-on: ubuntu-latest
-    env:
-      STAGE: ${{ github.base_ref == 'main' && 'prod' || github.base_ref == 'qa' && 'qa' || 'dev' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,7 +18,6 @@ jobs:
         with:
           node-version: 22
 
-      # Terraform empaqueta el código de las Lambda, así que hay que compilarlo antes del plan
       - name: Compilar backend para Lambda
         working-directory: backend
         run: |
@@ -32,47 +25,16 @@ jobs:
           npm run typecheck
           npm run build:lambda
 
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.10.5"
 
       - name: Formato
         run: terraform fmt -check -recursive infra/terraform
-        continue-on-error: true   # avisa pero no bloquea mientras se ordena el formato del código heredado
+        continue-on-error: true
 
-      - name: Plan
-        id: plan
+      - name: Validar
         working-directory: infra/terraform/envs/aws
         run: |
-          terraform init -input=false \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="key=${STAGE}/terraform.tfstate"
+          terraform init -input=false -backend=false
           terraform validate
-          terraform plan -input=false -no-color -var-file="${STAGE}.tfvars" -out=tfplan | tee plan.txt
-
-      - name: Comentar el plan en el PR
-        if: always() && steps.plan.outcome != 'skipped'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const path = 'infra/terraform/envs/aws/plan.txt';
-            let plan = fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : 'El plan falló antes de generarse: revisa los logs del job.';
-            const resumen = (plan.match(/Plan: .*|No changes\..*/) || ['(sin resumen)'])[0];
-            if (plan.length > 60000) plan = plan.slice(-60000);   // límite de tamaño de un comentario
-            const body = [
-              `### Terraform plan · ambiente \`${process.env.STAGE}\``,
-              `**${resumen}**`,
-              '<details><summary>Ver el plan completo</summary>',
-              '',
-              '```',
-              plan,
-              '```',
-              '</details>',
-            ].join('\n');
-            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
