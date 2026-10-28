@@ -29,6 +29,8 @@ const deps = buildDeps({ realtime: 'relay' });
 
 export async function http(event: HttpEvent) {
   const method = event.requestContext.http.method.toUpperCase();
+  // API Gateway ya agrega las cabeceras CORS; solo falta responder 2xx a la consulta previa del navegador
+  if (method === 'OPTIONS') return { statusCode: 204 };
   const stage = event.requestContext.stage && event.requestContext.stage !== '$default' ? `/${event.requestContext.stage}` : '';
   const path = event.rawPath.startsWith(stage) ? event.rawPath.slice(stage.length) || '/' : event.rawPath;
   const match = matchRoute(method, path);
