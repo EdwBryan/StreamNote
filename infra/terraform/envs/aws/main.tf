@@ -1,4 +1,4 @@
-# Entorno AWS (us-east-1). Un solo código para dev, qa y prod: cambia el archivo .tfvars
+# Entorno AWS (us-east-2). Un solo código para dev, qa y prod: cambia el archivo .tfvars
 # y la llave del estado. Reutiliza los módulos del entorno local y agrega lo que en local
 # se emula: red para Aurora, Aurora, Lambda + API Gateway, Cognito, Scheduler y la web.
 #
@@ -35,7 +35,7 @@ terraform {
 }
 
 provider "aws" {
-  region = "us-east-1"
+  region = "us-east-2"
   default_tags {
     tags = { proyecto = "streamnote", entorno = var.stage }
   }
