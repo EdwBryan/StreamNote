@@ -1,0 +1,80 @@
+# Despliegue continuo: cada merge a una rama de ambiente aplica Terraform y publica la app.
+#   develop -> dev   |   qa -> qa   |   main -> prod (el environment "prod" pide aprobación)
+name: deploy
+
+on:
+  push:
+    branches: [develop, qa, main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      STAGE: ${{ github.ref_name == 'main' && 'prod' || github.ref_name == 'qa' && 'qa' || 'dev' }}
+    environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name == 'qa' && 'qa' || 'dev' }}
+    concurrency:
+      group: deploy-${{ github.ref_name }}   # nunca dos despliegues del mismo ambiente a la vez
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compilar backend para Lambda
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build:lambda
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+          terraform_wrapper: false   # sin esto "terraform output" devuelve texto extra
+
+      # 1) Infraestructura
+      - name: Terraform apply
+        working-directory: infra/terraform/envs/aws
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${STAGE}/terraform.tfstate"
+          terraform apply -input=false -auto-approve -var-file="${STAGE}.tfvars"
+          {
+            echo "API_URL=$(terraform output -raw api_url)"
+            echo "WEB_URL=$(terraform output -raw web_url)"
+            echo "WEB_BUCKET=$(terraform output -raw web_bucket)"
+            echo "CF_ID=$(terraform output -raw cloudfront_id)"
+            echo "DB_CLUSTER_ARN=$(terraform output -raw db_cluster_arn)"
+            echo "DB_SECRET_ARN=$(terraform output -raw db_secret_arn)"
+          } >> "$GITHUB_ENV"
+
+      # 2) Base de datos: migraciones por la Data API (HTTPS + IAM, sin túnel)
+      - name: Migraciones
+        working-directory: backend
+        run: npm run migrate:aws
+
+      # 3) Web: compilar con la URL real de la API, subir y refrescar la caché de CloudFront
+      - name: Publicar la web
+        working-directory: web
+        run: |
+          npm ci
+          VITE_API_URL="$API_URL" npm run build
+          aws s3 sync dist "s3://$WEB_BUCKET" --delete
+          aws cloudfront create-invalidation --distribution-id "$CF_ID" --paths "/*"
+
+      - name: Resumen
+        run: |
+          echo "### StreamNote desplegado en \`$STAGE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Web: $WEB_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API: $API_URL" >> "$GITHUB_STEP_SUMMARY"

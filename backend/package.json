@@ -9,6 +9,7 @@
     "start:api": "tsx src/entrypoints/server.ts",
     "start:worker": "tsx src/entrypoints/worker.ts",
     "migrate": "tsx src/entrypoints/migrate.ts",
+    "migrate:aws": "tsx src/entrypoints/migrate-data-api.ts",
     "bootstrap:local": "tsx src/entrypoints/bootstrap-local.ts",
     "smoke": "tsx scripts/smoke.ts",
     "typecheck": "tsc --noEmit",
