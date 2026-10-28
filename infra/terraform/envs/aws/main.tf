@@ -2,11 +2,13 @@
 # y la llave del estado. Reutiliza los módulos del entorno local y agrega lo que en local
 # se emula: red para Aurora, Aurora, Lambda + API Gateway, Cognito, Scheduler y la web.
 #
-#   terraform init -backend-config="bucket=<bucket-de-estado>" -backend-config="key=dev/terraform.tfstate"
-#   terraform plan -var-file=dev.tfvars
+# Desde tu máquina (copia backend.hcl.example a backend.hcl, que no se sube al repo):
+#   terraform -chdir=infra/terraform/envs/aws init -backend-config=backend.hcl
+#   terraform -chdir=infra/terraform/envs/aws validate
+#   terraform -chdir=infra/terraform/envs/aws plan -var-file=dev.tfvars
 #
-# Lo aplica el pipeline (.github/workflows/deploy.yml) según la rama:
-#   develop -> dev   |   qa -> qa   |   main -> prod
+# Lo aplica el pipeline (.github/workflows/deploy.yml) con cada push a develop -> dev,
+# entrando a AWS por OIDC con el rol lab09-github-actions-dev. qa y prod llegarán con sus propios roles.
 # Pendiente: adaptador de Amazon IVS (MEDIA_PROVIDER=ivs), IVS Chat, Web Push, WAF, monitoreo.
 
 terraform {
@@ -26,10 +28,9 @@ terraform {
     }
   }
 
-  # El bucket y la llave se pasan en "terraform init" (-backend-config), así el mismo
-  # código sirve para los tres ambientes sin pisar el estado de otro.
+  # El bucket, la llave y la región se pasan en "terraform init" (-backend-config o
+  # backend.hcl), así el mismo código sirve para cada ambiente sin pisar el estado de otro.
   backend "s3" {
-    region       = "us-east-2"
     use_lockfile = true # bloqueo nativo: dos despliegues a la vez no pueden romper el estado
   }
 }
@@ -184,7 +185,7 @@ module "api" {
   environment = {
     STAGE                   = var.stage
     AUTH_MODE               = var.auth_mode
-    COGNITO_ISSUER          = "https://cognito-idp.us-east-1.amazonaws.com/${aws_cognito_user_pool.this.id}"
+    COGNITO_ISSUER          = "https://${aws_cognito_user_pool.this.endpoint}" # incluye la región del pool
     COGNITO_CLIENT_ID       = aws_cognito_user_pool_client.web.id
     JWT_SECRET              = random_password.jwt.result
     DB_DRIVER               = "data-api"

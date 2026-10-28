@@ -10,13 +10,13 @@ terraform {
 }
 
 provider "aws" {
-  region = "us-east-2"
+  region = "us-east-1"
 }
 
 data "aws_caller_identity" "me" {}
 
 locals {
-  repo = "EdwBryan/StreamNote"   # solo este repo puede usar el rol
+  repo = "EdwBryan/StreamNote" # solo este repo puede usar el rol
   # GitHub firma el "sub" con los IDs de la cuenta y del repo (formato inmutable):
   # aunque alguien cree otro repo con el mismo nombre, sus IDs no coinciden.
   repo_inmutable = "EdwBryan@268266098/StreamNote@1435819305"
@@ -30,7 +30,7 @@ resource "aws_s3_bucket" "tfstate" {
 resource "aws_s3_bucket_versioning" "tfstate" {
   bucket = aws_s3_bucket.tfstate.id
   versioning_configuration {
-    status = "Enabled"   # si el estado se daña, se recupera una versión anterior
+    status = "Enabled" # si el estado se daña, se recupera una versión anterior
   }
 }
 
@@ -39,7 +39,7 @@ resource "aws_s3_bucket_public_access_block" "tfstate" {
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
-  restrict_public_buckets = true   # el estado puede tener secretos: nunca público
+  restrict_public_buckets = true # el estado puede tener secretos: nunca público
 }
 
 # 2) AWS confía en los tokens que firma GitHub Actions
@@ -76,7 +76,7 @@ resource "aws_iam_role" "github_deploy" {
 
 resource "aws_iam_role_policy_attachment" "admin" {
   role       = aws_iam_role.github_deploy.name
-  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"   # simple para el curso
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess" # simple para el curso
 }
 
 output "role_arn" {

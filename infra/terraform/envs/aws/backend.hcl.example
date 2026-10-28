@@ -1,0 +1,12 @@
+# Backend del estado para trabajar desde tu máquina.
+# 1) Copia este archivo como backend.hcl (está en .gitignore: nunca se sube al repo).
+# 2) Reemplaza el bucket. La llave es fija para el laboratorio.
+# 3) Inicia sesión con un perfil de AWS (aws configure sso o aws configure) y ejecuta,
+#    desde la raíz del repo (el plan empaqueta las Lambda, compílalas antes:
+#    cd backend && npm ci && npm run build:lambda && cd ..):
+#      terraform -chdir=infra/terraform/envs/aws init -backend-config=backend.hcl
+#      terraform -chdir=infra/terraform/envs/aws validate
+#      terraform -chdir=infra/terraform/envs/aws plan -var-file=dev.tfvars
+bucket = "<BUCKET_TFSTATE>"
+key    = "lab09/dev/terraform.tfstate"
+region = "us-east-2"
