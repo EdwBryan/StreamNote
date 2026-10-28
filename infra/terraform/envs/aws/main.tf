@@ -29,7 +29,7 @@ terraform {
   # El bucket y la llave se pasan en "terraform init" (-backend-config), así el mismo
   # código sirve para los tres ambientes sin pisar el estado de otro.
   backend "s3" {
-    region       = "us-east-1"
+    region       = "us-east-2"
     use_lockfile = true # bloqueo nativo: dos despliegues a la vez no pueden romper el estado
   }
 }
