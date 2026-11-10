@@ -1,8 +1,8 @@
-# Entorno AWS (us-east-2). Un solo código para dev, qa y prod: cambia el archivo .tfvars
+# Entorno AWS (us-east-1). Un solo código para dev, qa y prod: cambia el archivo .tfvars
 # y la llave del estado. Reutiliza los módulos del entorno local y agrega lo que en local
 # se emula: red para Aurora, Aurora, Lambda + API Gateway, Cognito, Scheduler y la web.
 #
-#   terraform init -backend-config="bucket=<bucket-de-estado>" -backend-config="key=dev/terraform.tfstate"
+#   terraform init -backend-config=backend.hcl   (copia backend.hcl.example)
 #   terraform plan -var-file=dev.tfvars
 #
 # Lo aplica el pipeline (.github/workflows/deploy.yml) según la rama:
@@ -29,13 +29,13 @@ terraform {
   # El bucket y la llave se pasan en "terraform init" (-backend-config), así el mismo
   # código sirve para los tres ambientes sin pisar el estado de otro.
   backend "s3" {
-    region       = "us-east-2"
+    region       = "us-east-1"
     use_lockfile = true # bloqueo nativo: dos despliegues a la vez no pueden romper el estado
   }
 }
 
 provider "aws" {
-  region = "us-east-2"
+  region = "us-east-1"
   default_tags {
     tags = { proyecto = "streamnote", entorno = var.stage }
   }
@@ -184,7 +184,7 @@ module "api" {
   environment = {
     STAGE                   = var.stage
     AUTH_MODE               = var.auth_mode
-    COGNITO_ISSUER          = "https://cognito-idp.us-east-1.amazonaws.com/${aws_cognito_user_pool.this.id}"
+    COGNITO_ISSUER          = "https://${aws_cognito_user_pool.this.endpoint}"
     COGNITO_CLIENT_ID       = aws_cognito_user_pool_client.web.id
     JWT_SECRET              = random_password.jwt.result
     DB_DRIVER               = "data-api"
