@@ -1,11 +1,11 @@
 # Plan de Terraform en cada Pull Request. No cambia nada en AWS: solo muestra qué haría
 # y lo publica como comentario en el PR para que el equipo lo revise antes del merge.
-#   PR hacia develop -> plan contra dev | hacia qa -> qa | hacia main -> prod
+#   PR hacia development -> plan contra dev | hacia qa -> qa | hacia main -> prod
 name: plan
 
 on:
   pull_request:
-    branches: [develop, qa, main]
+    branches: [development, qa, main]
 
 permissions:
   id-token: write       # para pedir el token OIDC con el que se entra a AWS (sin llaves)
@@ -13,6 +13,21 @@ permissions:
   pull-requests: write  # para comentar el plan en el PR
 
 jobs:
+  # Valida formato y sintaxis del bootstrap sin credenciales de AWS (el bootstrap se aplica a mano)
+  validate-bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+      - name: Validar bootstrap (formato y sintaxis)
+        working-directory: infra/bootstrap
+        run: |
+          terraform fmt -check
+          terraform init -backend=false -input=false
+          terraform validate
+
   plan:
     runs-on: ubuntu-latest
     env:
@@ -51,7 +66,7 @@ jobs:
         run: |
           terraform init -input=false \
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-            -backend-config="key=${STAGE}/terraform.tfstate"
+            -backend-config="key=lab09/${STAGE}/terraform.tfstate"
           terraform validate
           terraform plan -input=false -no-color -var-file="${STAGE}.tfvars" -out=tfplan | tee plan.txt
 
