@@ -12,8 +12,37 @@ variable "force_destroy" {
 }
 
 resource "aws_s3_bucket" "web" {
+  #checkov:skip=CKV_AWS_145:Cifrado SSE-S3 (AES-256). KMS agrega costo por solicitud y no cambia quién puede leerlo.
+  #checkov:skip=CKV_AWS_18:Un bucket de logs de acceso no está en el diagrama; el acceso a los objetos ya pasa por CloudFront.
+  #checkov:skip=CKV2_AWS_62:Nada reacciona a la subida de un archivo, no hace falta notificar eventos.
+  #checkov:skip=CKV_AWS_144:Una sola región por diseño (diagrama y documento); replicar a otra región duplica el costo.
   bucket        = "${var.prefix}-web"
   force_destroy = var.force_destroy
+}
+
+# Cada despliegue pisa la web: se guarda la versión anterior 7 días por si hay que volver atrás
+resource "aws_s3_bucket_versioning" "web" {
+  bucket = aws_s3_bucket.web.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "web" {
+  bucket     = aws_s3_bucket.web.id
+  depends_on = [aws_s3_bucket_versioning.web]
+
+  rule {
+    id     = "versiones-viejas"
+    status = "Enabled"
+    filter {}
+    noncurrent_version_expiration {
+      noncurrent_days = 7
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "web" {
