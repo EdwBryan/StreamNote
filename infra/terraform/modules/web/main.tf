@@ -31,10 +31,47 @@ resource "aws_cloudfront_origin_access_control" "web" {
   signing_protocol                  = "sigv4"
 }
 
+# RNF-06: si una IP manda más de 300 solicitudes en 5 minutos, se bloquea
+resource "aws_wafv2_web_acl" "web" {
+  name  = "${var.prefix}-web"
+  scope = "CLOUDFRONT" # el WAF de CloudFront siempre vive en us-east-1
+
+  default_action {
+    allow {}
+  }
+
+  rule {
+    name     = "limite-por-ip"
+    priority = 1
+    action {
+      block {}
+    }
+    statement {
+      rate_based_statement {
+        limit                 = 300
+        evaluation_window_sec = 300
+        aggregate_key_type    = "IP"
+      }
+    }
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "limite-por-ip"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "${var.prefix}-web"
+    sampled_requests_enabled   = true
+  }
+}
+
 resource "aws_cloudfront_distribution" "web" {
   enabled             = true
   default_root_object = "index.html"
   price_class         = "PriceClass_100" # puntos de presencia más baratos (Norteamérica y Europa); Perú se atiende desde EE. UU.
+  web_acl_id          = aws_wafv2_web_acl.web.arn
   comment             = "${var.prefix} web"
 
   origin {
