@@ -5,7 +5,7 @@ name: plan
 
 on:
   pull_request:
-    branches: [develop, qa, main]
+    branches: [development, qa, main]
 
 permissions:
   id-token: write       # para pedir el token OIDC con el que se entra a AWS (sin llaves)
