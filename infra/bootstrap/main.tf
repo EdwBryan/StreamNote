@@ -10,29 +10,26 @@ terraform {
 }
 
 provider "aws" {
-  region = "us-east-2"
+  region = "us-east-1"
 }
 
 data "aws_caller_identity" "me" {}
 
 locals {
-  region  = "us-east-2"
+  region  = "us-east-1"
   account = data.aws_caller_identity.me.account_id
   # GitHub firma el "sub" con los IDs de la cuenta y del repo (formato inmutable):
   # aunque alguien cree otro repo con el mismo nombre, sus IDs no coinciden.
   # Solo los jobs con "environment: dev" de este repo pueden asumir el rol.
   github_sub = "repo:EdwBryan@268266098/StreamNote@1435819305:environment:dev"
   # Recursos del stack de dev: todos se llaman streamnote-dev-*
-  prefix = "streamnote-dev"
-  # Estado del laboratorio (bucket creado a mano en us-east-2)
-  state_bucket = "streamnote-tfstate-ohio-666791"
+  prefix       = "streamnote-dev"
+  state_bucket = aws_s3_bucket.tfstate.bucket
   state_key    = "lab09/dev/terraform.tfstate"
 }
 
-# 1) Bucket del estado original (us-east-1). Ya existe con estado real: se fija su región para
-#    que el provider en us-east-2 no lo reemplace, y prevent_destroy impide borrarlo por error.
+# 1) Bucket del estado de Terraform (el número de cuenta lo hace único)
 resource "aws_s3_bucket" "tfstate" {
-  region = "us-east-1"
   bucket = "streamnote-tfstate-${data.aws_caller_identity.me.account_id}"
 
   lifecycle {
@@ -41,7 +38,6 @@ resource "aws_s3_bucket" "tfstate" {
 }
 
 resource "aws_s3_bucket_versioning" "tfstate" {
-  region = "us-east-1"
   bucket = aws_s3_bucket.tfstate.id
   versioning_configuration {
     status = "Enabled" # si el estado se daña, se recupera una versión anterior
@@ -49,7 +45,6 @@ resource "aws_s3_bucket_versioning" "tfstate" {
 }
 
 resource "aws_s3_bucket_public_access_block" "tfstate" {
-  region                  = "us-east-1"
   bucket                  = aws_s3_bucket.tfstate.id
   block_public_acls       = true
   block_public_policy     = true
@@ -286,11 +281,8 @@ data "aws_iam_policy_document" "deploy_datos" {
   # --- Red de Aurora (VPC, subredes, SG). Las lecturas de EC2 no admiten ARN ---
   statement {
     sid = "Ec2Describe"
-    actions = [
-      "ec2:DescribeVpcs", "ec2:DescribeVpcAttribute", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups",
-      "ec2:DescribeSecurityGroupRules", "ec2:DescribeAvailabilityZones", "ec2:DescribeNetworkInterfaces",
-      "ec2:DescribeTags", "ec2:DescribeAccountAttributes",
-    ]
+    # Al crear la VPC, Terraform también lee sus tablas de rutas y ACL por defecto
+    actions   = ["ec2:Describe*"]
     resources = ["*"]
   }
   statement {
