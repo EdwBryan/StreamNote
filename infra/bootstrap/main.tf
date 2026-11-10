@@ -10,29 +10,26 @@ terraform {
 }
 
 provider "aws" {
-  region = "us-east-2"
+  region = "us-east-1"
 }
 
 data "aws_caller_identity" "me" {}
 
 locals {
-  region  = "us-east-2"
+  region  = "us-east-1"
   account = data.aws_caller_identity.me.account_id
   # GitHub firma el "sub" con los IDs de la cuenta y del repo (formato inmutable):
   # aunque alguien cree otro repo con el mismo nombre, sus IDs no coinciden.
   # Solo los jobs con "environment: dev" de este repo pueden asumir el rol.
   github_sub = "repo:EdwBryan@268266098/StreamNote@1435819305:environment:dev"
   # Recursos del stack de dev: todos se llaman streamnote-dev-*
-  prefix = "streamnote-dev"
-  # Estado del laboratorio (bucket creado a mano en us-east-2)
-  state_bucket = "streamnote-tfstate-ohio-666791"
+  prefix       = "streamnote-dev"
+  state_bucket = aws_s3_bucket.tfstate.bucket
   state_key    = "lab09/dev/terraform.tfstate"
 }
 
-# 1) Bucket del estado original (us-east-1). Ya existe con estado real: se fija su región para
-#    que el provider en us-east-2 no lo reemplace, y prevent_destroy impide borrarlo por error.
+# 1) Bucket del estado de Terraform (el número de cuenta lo hace único)
 resource "aws_s3_bucket" "tfstate" {
-  region = "us-east-1"
   bucket = "streamnote-tfstate-${data.aws_caller_identity.me.account_id}"
 
   lifecycle {
@@ -41,7 +38,6 @@ resource "aws_s3_bucket" "tfstate" {
 }
 
 resource "aws_s3_bucket_versioning" "tfstate" {
-  region = "us-east-1"
   bucket = aws_s3_bucket.tfstate.id
   versioning_configuration {
     status = "Enabled" # si el estado se daña, se recupera una versión anterior
@@ -49,7 +45,6 @@ resource "aws_s3_bucket_versioning" "tfstate" {
 }
 
 resource "aws_s3_bucket_public_access_block" "tfstate" {
-  region                  = "us-east-1"
   bucket                  = aws_s3_bucket.tfstate.id
   block_public_acls       = true
   block_public_policy     = true
@@ -118,7 +113,7 @@ data "aws_iam_policy_document" "deploy_app" {
   statement {
     sid       = "PassLambdaRole"
     actions   = ["iam:PassRole"]
-    resources = ["arn:aws:iam::${local.account}:role/${local.prefix}-lambda"]
+    resources = ["arn:aws:iam::${local.account}:role/${local.prefix}-lambda*"] # un rol por dominio
     condition {
       test     = "StringEquals"
       variable = "iam:PassedToService"
@@ -135,7 +130,7 @@ data "aws_iam_policy_document" "deploy_app" {
     ]
     resources = ["arn:aws:iam::${local.account}:role/${local.prefix}-*"]
   }
-  # Solo se puede adjuntar la política de logs de Lambda: nunca una política amplia
+  # Solo se pueden adjuntar la de logs de Lambda y la de AWS Backup: nunca una política amplia
   statement {
     sid       = "StackRolesAttach"
     actions   = ["iam:AttachRolePolicy", "iam:DetachRolePolicy"]
@@ -143,7 +138,10 @@ data "aws_iam_policy_document" "deploy_app" {
     condition {
       test     = "ArnEquals"
       variable = "iam:PolicyARN"
-      values   = ["arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"]
+      values = [
+        "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+        "arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup",
+      ]
     }
   }
   statement {
@@ -286,11 +284,8 @@ data "aws_iam_policy_document" "deploy_datos" {
   # --- Red de Aurora (VPC, subredes, SG). Las lecturas de EC2 no admiten ARN ---
   statement {
     sid = "Ec2Describe"
-    actions = [
-      "ec2:DescribeVpcs", "ec2:DescribeVpcAttribute", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups",
-      "ec2:DescribeSecurityGroupRules", "ec2:DescribeAvailabilityZones", "ec2:DescribeNetworkInterfaces",
-      "ec2:DescribeTags", "ec2:DescribeAccountAttributes",
-    ]
+    # Al crear la VPC, Terraform también lee sus tablas de rutas y ACL por defecto
+    actions   = ["ec2:Describe*"]
     resources = ["*"]
   }
   statement {
@@ -411,10 +406,89 @@ data "aws_iam_policy_document" "deploy_datos" {
   }
 }
 
+# Lo que protege el stack: WAF, alarmas y respaldos
+data "aws_iam_policy_document" "deploy_proteccion" {
+  statement {
+    sid = "Waf"
+    actions = [
+      "wafv2:CreateWebACL", "wafv2:GetWebACL", "wafv2:UpdateWebACL", "wafv2:DeleteWebACL",
+      "wafv2:ListTagsForResource", "wafv2:TagResource", "wafv2:UntagResource",
+    ]
+    resources = ["arn:aws:wafv2:${local.region}:${local.account}:global/webacl/${local.prefix}-*/*"]
+  }
+  statement {
+    sid = "Alarmas"
+    actions = [
+      "cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms",
+      "cloudwatch:ListTagsForResource", "cloudwatch:TagResource", "cloudwatch:UntagResource",
+    ]
+    resources = ["arn:aws:cloudwatch:${local.region}:${local.account}:alarm:${local.prefix}-*"]
+  }
+  statement {
+    sid       = "AlarmasLeer"
+    actions   = ["cloudwatch:DescribeAlarms"]
+    resources = ["*"]
+  }
+  statement {
+    sid = "AvisosSns"
+    actions = [
+      "sns:CreateTopic", "sns:DeleteTopic", "sns:GetTopicAttributes", "sns:SetTopicAttributes",
+      "sns:Subscribe", "sns:Unsubscribe", "sns:GetSubscriptionAttributes", "sns:SetSubscriptionAttributes",
+      "sns:ListSubscriptionsByTopic", "sns:TagResource", "sns:UntagResource", "sns:ListTagsForResource",
+    ]
+    resources = ["arn:aws:sns:${local.region}:${local.account}:${local.prefix}-*"]
+  }
+  statement {
+    sid = "BackupVault"
+    actions = [
+      "backup:CreateBackupVault", "backup:DescribeBackupVault", "backup:DeleteBackupVault",
+      "backup:ListRecoveryPointsByBackupVault", "backup:DeleteRecoveryPoint",
+      "backup:TagResource", "backup:UntagResource", "backup:ListTags",
+    ]
+    resources = ["arn:aws:backup:${local.region}:${local.account}:backup-vault:${local.prefix}-*"]
+  }
+  statement {
+    sid = "BackupPlan"
+    actions = [
+      "backup:CreateBackupPlan", "backup:GetBackupPlan", "backup:UpdateBackupPlan", "backup:DeleteBackupPlan",
+      "backup:CreateBackupSelection", "backup:GetBackupSelection", "backup:DeleteBackupSelection",
+      "backup:TagResource", "backup:UntagResource", "backup:ListTags",
+    ]
+    resources = ["arn:aws:backup:${local.region}:${local.account}:backup-plan:*"] # el id del plan es aleatorio
+  }
+  # Crear un vault exige esto aunque no sea un recurso propio
+  statement {
+    sid       = "BackupStorage"
+    actions   = ["backup-storage:MountCapsule"]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "KmsViaBackup"
+    actions   = ["kms:DescribeKey", "kms:CreateGrant", "kms:Decrypt", "kms:GenerateDataKey", "kms:RetireGrant"]
+    resources = ["arn:aws:kms:${local.region}:${local.account}:key/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["backup.${local.region}.amazonaws.com"]
+    }
+  }
+  statement {
+    sid       = "PassBackupRole"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:aws:iam::${local.account}:role/${local.prefix}-backup"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["backup.amazonaws.com"]
+    }
+  }
+}
+
 resource "aws_iam_policy" "deploy" {
   for_each = {
-    app   = data.aws_iam_policy_document.deploy_app.json   # estado, IAM, Lambda, logs, API Gateway, Cognito
-    datos = data.aws_iam_policy_document.deploy_datos.json # Aurora, red, colas, eventos, DynamoDB, S3, CloudFront
+    app        = data.aws_iam_policy_document.deploy_app.json        # estado, IAM, Lambda, logs, API Gateway, Cognito
+    datos      = data.aws_iam_policy_document.deploy_datos.json      # Aurora, red, colas, eventos, DynamoDB, S3, CloudFront
+    proteccion = data.aws_iam_policy_document.deploy_proteccion.json # WAF, alarmas y respaldos
   }
   name        = "lab09-github-actions-dev-${each.key}"
   description = "Permisos mínimos del pipeline para desplegar el stack de dev de StreamNote (${each.key})"
