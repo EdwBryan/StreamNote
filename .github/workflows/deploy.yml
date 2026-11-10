@@ -1,10 +1,10 @@
-# Despliegue continuo: cada merge a una rama de ambiente aplica Terraform y publica la app.
-#   develop -> dev   |   qa -> qa   |   main -> prod (el environment "prod" pide aprobación)
+# Despliegue continuo: cada merge a development aplica Terraform en dev y publica la app.
+# qa y main no despliegan: solo hay un ambiente en AWS para no pagar tres.
 name: deploy
 
 on:
   push:
-    branches: [develop, qa, main]
+    branches: [development]
 
 permissions:
   id-token: write
@@ -14,10 +14,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      STAGE: ${{ github.ref_name == 'main' && 'prod' || github.ref_name == 'qa' && 'qa' || 'dev' }}
-    environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name == 'qa' && 'qa' || 'dev' }}
+      STAGE: dev
+    environment: dev
     concurrency:
-      group: deploy-${{ github.ref_name }}   # nunca dos despliegues del mismo ambiente a la vez
+      group: deploy-dev   # nunca dos despliegues a la vez
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4

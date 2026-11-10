@@ -3,7 +3,7 @@ name: plan
 
 on:
   pull_request:
-    branches: [develop, qa, main]
+    branches: [development, qa, main]
 
 permissions:
   contents: read
