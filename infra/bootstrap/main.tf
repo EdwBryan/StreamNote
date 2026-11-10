@@ -113,7 +113,7 @@ data "aws_iam_policy_document" "deploy_app" {
   statement {
     sid       = "PassLambdaRole"
     actions   = ["iam:PassRole"]
-    resources = ["arn:aws:iam::${local.account}:role/${local.prefix}-lambda"]
+    resources = ["arn:aws:iam::${local.account}:role/${local.prefix}-lambda*"] # un rol por dominio
     condition {
       test     = "StringEquals"
       variable = "iam:PassedToService"
