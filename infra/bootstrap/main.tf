@@ -413,6 +413,28 @@ data "aws_iam_policy_document" "deploy_proteccion" {
     ]
     resources = ["arn:aws:wafv2:${local.region}:${local.account}:global/webacl/${local.prefix}-*/*"]
   }
+  statement {
+    sid = "Alarmas"
+    actions = [
+      "cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms",
+      "cloudwatch:ListTagsForResource", "cloudwatch:TagResource", "cloudwatch:UntagResource",
+    ]
+    resources = ["arn:aws:cloudwatch:${local.region}:${local.account}:alarm:${local.prefix}-*"]
+  }
+  statement {
+    sid       = "AlarmasLeer"
+    actions   = ["cloudwatch:DescribeAlarms"]
+    resources = ["*"]
+  }
+  statement {
+    sid = "AvisosSns"
+    actions = [
+      "sns:CreateTopic", "sns:DeleteTopic", "sns:GetTopicAttributes", "sns:SetTopicAttributes",
+      "sns:Subscribe", "sns:Unsubscribe", "sns:GetSubscriptionAttributes", "sns:SetSubscriptionAttributes",
+      "sns:ListSubscriptionsByTopic", "sns:TagResource", "sns:UntagResource", "sns:ListTagsForResource",
+    ]
+    resources = ["arn:aws:sns:${local.region}:${local.account}:${local.prefix}-*"]
+  }
 }
 
 resource "aws_iam_policy" "deploy" {
