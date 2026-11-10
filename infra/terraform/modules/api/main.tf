@@ -1,8 +1,5 @@
-# Cómputo: las mismas rutas y consumidores del backend, empaquetados como Lambda.
-#   http          ← API Gateway HTTP API
-#   note-writes   ← SQS (concurrencia máxima 5 para no saturar Aurora, RNF-18)
-#   domain-events ← SQS (destino de la regla de EventBridge y de Scheduler)
-#   media-jobs    ← SQS (necesita una capa con ffmpeg; ver README)
+# Cómputo: una Lambda por dominio, como en el diagrama. Todas usan el mismo paquete del
+# backend; lo que cambia es qué rutas les manda API Gateway, qué cola leen y su rol.
 
 variable "prefix" {
   type = string
@@ -72,93 +69,125 @@ data "aws_iam_policy_document" "assume" {
   }
 }
 
+locals {
+  # Permisos que puede pedir cada dominio (mínimo privilegio: cada uno apunta a un recurso concreto)
+  permisos = {
+    db = [
+      { Effect = "Allow", Action = ["rds-data:ExecuteStatement", "rds-data:BatchExecuteStatement", "rds-data:BeginTransaction", "rds-data:CommitTransaction", "rds-data:RollbackTransaction"], Resource = var.db_cluster_arn },
+      { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = var.db_secret_arn },
+    ]
+    eventos = [
+      { Effect = "Allow", Action = "events:PutEvents", Resource = var.event_bus_arn },
+    ]
+    cola_notas = [
+      { Effect = "Allow", Action = ["sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Resource = var.queue_arns["note-writes"] },
+    ]
+    cola_eventos = [
+      { Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Resource = var.queue_arns["domain-events"] },
+    ]
+    cola_media = [
+      { Effect = "Allow", Action = ["sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Resource = var.queue_arns["media-jobs"] },
+    ]
+    recordatorios = [
+      { Effect = "Allow", Action = ["scheduler:CreateSchedule", "scheduler:DeleteSchedule"], Resource = "*" },
+      { Effect = "Allow", Action = "iam:PassRole", Resource = var.scheduler_role_arn },
+    ]
+    notificaciones = [
+      { Effect = "Allow", Action = ["dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem"], Resource = var.table_arn },
+    ]
+    grabaciones = [
+      { Effect = "Allow", Action = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:PutObjectTagging"], Resource = "${var.bucket_arn}/*" },
+    ]
+  }
+
+  functions = {
+    identidad      = { timeout = 15, memory = 512, permisos = ["db"] }
+    comunidades    = { timeout = 15, memory = 512, permisos = ["db", "eventos"] }
+    notas          = { timeout = 30, memory = 512, permisos = ["db", "eventos", "cola_notas"] }
+    tareas         = { timeout = 15, memory = 512, permisos = ["db", "recordatorios"] }
+    notificaciones = { timeout = 20, memory = 512, permisos = ["db", "eventos", "cola_eventos", "recordatorios", "notificaciones"] }
+    streaming      = { timeout = 300, memory = 2048, permisos = ["db", "eventos", "cola_media", "recordatorios", "grabaciones"] }
+  }
+
+  # Qué cola lee cada dominio
+  colas = {
+    note-writes   = "notas"
+    domain-events = "notificaciones"
+    media-jobs    = "streaming"
+  }
+
+  # Qué Lambda atiende cada ruta de la API. API Gateway elige la ruta más específica.
+  rutas = {
+    "ANY /auth/{proxy+}"               = "identidad"
+    "ANY /me"                          = "identidad"
+    "ANY /communities"                 = "comunidades"
+    "ANY /communities/{proxy+}"        = "comunidades"
+    "ANY /notes"                       = "notas"
+    "ANY /notes/{proxy+}"              = "notas"
+    "ANY /files"                       = "notas"
+    "ANY /folders"                     = "notas"
+    "ANY /folders/{proxy+}"            = "notas"
+    "ANY /communities/{id}/notes"      = "notas"
+    "ANY /reminders"                   = "tareas"
+    "ANY /reminders/{proxy+}"          = "tareas"
+    "ANY /notifications"               = "notificaciones"
+    "ANY /notifications/{proxy+}"      = "notificaciones"
+    "ANY /streams/{proxy+}"            = "streaming"
+    "ANY /recordings/{proxy+}"         = "streaming"
+    "ANY /communities/{id}/streams"    = "streaming"
+    "ANY /communities/{id}/recordings" = "streaming"
+    "ANY /internal/{proxy+}"           = "streaming"
+  }
+}
+
 resource "aws_iam_role" "lambda" {
-  name               = "${var.prefix}-lambda"
+  for_each           = local.functions
+  name               = "${var.prefix}-lambda-${each.key}"
   assume_role_policy = data.aws_iam_policy_document.assume.json
 }
 
 resource "aws_iam_role_policy_attachment" "logs" {
-  role       = aws_iam_role.lambda.name
+  for_each   = local.functions
+  role       = aws_iam_role.lambda[each.key].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Mínimo privilegio: cada permiso apunta a un recurso concreto
-data "aws_iam_policy_document" "app" {
-  statement {
-    actions   = ["rds-data:ExecuteStatement", "rds-data:BatchExecuteStatement", "rds-data:BeginTransaction", "rds-data:CommitTransaction", "rds-data:RollbackTransaction"]
-    resources = [var.db_cluster_arn]
-  }
-  statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [var.db_secret_arn]
-  }
-  statement {
-    actions   = ["sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"]
-    resources = values(var.queue_arns)
-  }
-  statement {
-    actions   = ["events:PutEvents"]
-    resources = [var.event_bus_arn]
-  }
-  statement {
-    actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:PutObjectTagging"]
-    resources = ["${var.bucket_arn}/*"]
-  }
-  statement {
-    actions   = ["dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem"]
-    resources = [var.table_arn]
-  }
-  statement {
-    actions   = ["scheduler:CreateSchedule", "scheduler:DeleteSchedule"]
-    resources = ["*"]
-  }
-  statement {
-    actions   = ["iam:PassRole"]
-    resources = [var.scheduler_role_arn]
-  }
-}
-
 resource "aws_iam_role_policy" "app" {
-  role   = aws_iam_role.lambda.id
-  policy = data.aws_iam_policy_document.app.json
-}
-
-locals {
-  functions = {
-    http          = { handler = "index.http", timeout = 15, memory = 512 }
-    note-writes   = { handler = "index.noteWrites", timeout = 30, memory = 512 }
-    domain-events = { handler = "index.domainEvents", timeout = 20, memory = 512 }
-    media-jobs    = { handler = "index.mediaJobs", timeout = 300, memory = 2048 }
-  }
+  for_each = local.functions
+  role     = aws_iam_role.lambda[each.key].id
+  policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = flatten([for p in each.value.permisos : local.permisos[p]])
+  })
 }
 
 resource "aws_lambda_function" "this" {
   for_each         = local.functions
   function_name    = "${var.prefix}-${each.key}"
-  role             = aws_iam_role.lambda.arn
+  role             = aws_iam_role.lambda[each.key].arn
   runtime          = "nodejs22.x"
   architectures    = ["arm64"]
-  handler          = each.value.handler
+  handler          = "index.handler"
   timeout          = each.value.timeout
   memory_size      = each.value.memory
   filename         = data.archive_file.bundle.output_path
   source_code_hash = data.archive_file.bundle.output_base64sha256
-  layers           = each.key == "media-jobs" && var.ffmpeg_layer_arn != "" ? [var.ffmpeg_layer_arn] : []
+  layers           = each.key == "streaming" && var.ffmpeg_layer_arn != "" ? [var.ffmpeg_layer_arn] : []
 
   environment {
-    variables = merge(var.environment, each.key == "media-jobs" ? { PATH = "/opt/bin:/usr/local/bin:/usr/bin:/bin" } : {})
+    variables = merge(var.environment, each.key == "streaming" ? { PATH = "/opt/bin:/usr/local/bin:/usr/bin:/bin" } : {})
   }
 }
 
 resource "aws_lambda_event_source_mapping" "queues" {
-  for_each                = { for k in ["note-writes", "domain-events", "media-jobs"] : k => k }
+  for_each                = local.colas
   event_source_arn        = var.queue_arns[each.key]
-  function_name           = aws_lambda_function.this[each.key].arn
+  function_name           = aws_lambda_function.this[each.value].arn
   batch_size              = each.key == "media-jobs" ? 1 : 10
   function_response_types = ["ReportBatchItemFailures"]
 
   scaling_config {
-    maximum_concurrency = each.key == "note-writes" ? 5 : 10
+    maximum_concurrency = each.key == "note-writes" ? 5 : 10 # note-writes: máximo 5 para no saturar Aurora (RNF-18)
   }
 }
 
@@ -173,17 +202,18 @@ resource "aws_apigatewayv2_api" "http" {
 }
 
 resource "aws_apigatewayv2_integration" "http" {
+  for_each               = local.functions
   api_id                 = aws_apigatewayv2_api.http.id
   integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.this["http"].invoke_arn
+  integration_uri        = aws_lambda_function.this[each.key].invoke_arn
   payload_format_version = "2.0"
 }
 
-# Una sola ruta: el enrutador del backend resuelve la ruta y valida el JWT de Cognito
-resource "aws_apigatewayv2_route" "default" {
+resource "aws_apigatewayv2_route" "this" {
+  for_each  = local.rutas
   api_id    = aws_apigatewayv2_api.http.id
-  route_key = "$default"
-  target    = "integrations/${aws_apigatewayv2_integration.http.id}"
+  route_key = each.key
+  target    = "integrations/${aws_apigatewayv2_integration.http[each.value].id}"
 }
 
 resource "aws_apigatewayv2_stage" "default" {
@@ -197,9 +227,10 @@ resource "aws_apigatewayv2_stage" "default" {
 }
 
 resource "aws_lambda_permission" "apigw" {
+  for_each      = local.functions
   statement_id  = "AllowApiGateway"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.this["http"].function_name
+  function_name = aws_lambda_function.this[each.key].function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
 }
