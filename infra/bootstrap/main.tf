@@ -233,6 +233,12 @@ data "aws_iam_policy_document" "deploy_app" {
 
 data "aws_iam_policy_document" "deploy_datos" {
   # --- Aurora (RDS), su secreto y la Data API de las migraciones ---
+  # Al crear el cluster, Terraform revisa si pertenece a un cluster global (solo lectura)
+  statement {
+    sid       = "RdsGlobalClusters"
+    actions   = ["rds:DescribeGlobalClusters"]
+    resources = ["arn:aws:rds::${local.account}:global-cluster:*"]
+  }
   statement {
     sid = "Rds"
     actions = [
