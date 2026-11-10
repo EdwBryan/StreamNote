@@ -403,10 +403,23 @@ data "aws_iam_policy_document" "deploy_datos" {
   }
 }
 
+# Lo que protege el stack: WAF, alarmas y respaldos
+data "aws_iam_policy_document" "deploy_proteccion" {
+  statement {
+    sid = "Waf"
+    actions = [
+      "wafv2:CreateWebACL", "wafv2:GetWebACL", "wafv2:UpdateWebACL", "wafv2:DeleteWebACL",
+      "wafv2:ListTagsForResource", "wafv2:TagResource", "wafv2:UntagResource",
+    ]
+    resources = ["arn:aws:wafv2:${local.region}:${local.account}:global/webacl/${local.prefix}-*/*"]
+  }
+}
+
 resource "aws_iam_policy" "deploy" {
   for_each = {
-    app   = data.aws_iam_policy_document.deploy_app.json   # estado, IAM, Lambda, logs, API Gateway, Cognito
-    datos = data.aws_iam_policy_document.deploy_datos.json # Aurora, red, colas, eventos, DynamoDB, S3, CloudFront
+    app        = data.aws_iam_policy_document.deploy_app.json        # estado, IAM, Lambda, logs, API Gateway, Cognito
+    datos      = data.aws_iam_policy_document.deploy_datos.json      # Aurora, red, colas, eventos, DynamoDB, S3, CloudFront
+    proteccion = data.aws_iam_policy_document.deploy_proteccion.json # WAF, alarmas y respaldos
   }
   name        = "lab09-github-actions-dev-${each.key}"
   description = "Permisos mínimos del pipeline para desplegar el stack de dev de StreamNote (${each.key})"
