@@ -124,6 +124,13 @@ module "database" {
   deletion_protection = var.is_prod
 }
 
+module "backup" {
+  source        = "../../modules/backup"
+  prefix        = local.prefix
+  resource_arns = [module.database.cluster_arn, module.notifications.table_arn]
+  force_destroy = !var.is_prod
+}
+
 # Firma de los tokens del login de desarrollo (solo se usa con auth_mode = local).
 # Terraform la genera y la guarda en el estado: nunca está escrita en el repo.
 resource "random_password" "jwt" {
