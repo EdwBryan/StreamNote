@@ -20,7 +20,7 @@ interface HttpEvent {
   requestContext: { http: { method: string }; stage?: string };
 }
 interface SqsEvent {
-  Records: { messageId: string; body: string }[];
+  Records: { messageId: string; body: string; eventSourceARN?: string }[];
 }
 
 // Se crean una vez por contenedor de Lambda y se reutilizan entre invocaciones
@@ -62,3 +62,13 @@ async function eachRecord(event: SqsEvent, fn: (body: any) => Promise<unknown>) 
 export const noteWrites = (event: SqsEvent) => eachRecord(event, (m) => applyNoteWrite(deps, m));
 export const domainEvents = (event: SqsEvent) => eachRecord(event, (e) => handleDomainEvent(deps, e['detail-type'], e.detail));
 export const mediaJobs = (event: SqsEvent) => eachRecord(event, (j) => processRecording(deps, j.streamId));
+
+// Entrada única de las Lambdas por dominio: si el evento viene de una cola, la cola decide qué hacer
+export async function handler(event: HttpEvent | SqsEvent) {
+  if (!('Records' in event)) return http(event);
+  const queue = event.Records[0]?.eventSourceARN ?? '';
+  if (queue.endsWith('-note-writes')) return noteWrites(event);
+  if (queue.endsWith('-domain-events')) return domainEvents(event);
+  if (queue.endsWith('-media-jobs')) return mediaJobs(event);
+  throw new Error(`Cola sin manejador: ${queue}`);
+}
