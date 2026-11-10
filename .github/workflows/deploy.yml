@@ -45,6 +45,8 @@ jobs:
       # 1) Infraestructura
       - name: Terraform apply
         working-directory: infra/terraform/envs/aws
+        env:
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
         run: |
           terraform init -input=false \
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
