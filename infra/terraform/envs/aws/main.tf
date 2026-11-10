@@ -68,6 +68,13 @@ variable "db_with_reader" {
   default     = true
 }
 
+variable "alert_email" {
+  description = "Correo que recibe las alarmas (secreto ALERT_EMAIL de GitHub)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "ffmpeg_layer_arn" {
   type    = string
   default = ""
@@ -204,6 +211,13 @@ module "api" {
     EMULATE_S3_LIFECYCLE    = "false"
     WEB_ORIGIN              = module.web.url
   }
+}
+
+module "monitoring" {
+  source      = "../../modules/monitoring"
+  prefix      = local.prefix
+  api_id      = module.api.api_id
+  alert_email = var.alert_email
 }
 
 # ---------- Salidas que usa el pipeline ----------
