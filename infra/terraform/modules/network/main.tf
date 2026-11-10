@@ -12,11 +12,18 @@ variable "cidr" {
   default = "10.20.0.0/16"
 }
 
+# Las zonas A y B del diagrama, fijas: si AWS agrega otra zona, la red no cambia sola
 data "aws_availability_zones" "available" {
   state = "available"
+  filter {
+    name   = "zone-name"
+    values = ["us-east-1a", "us-east-1b"]
+  }
 }
 
 resource "aws_vpc" "this" {
+  #checkov:skip=CKV2_AWS_11:En esta VPC no hay tráfico que registrar: las Lambdas están fuera y hablan con Aurora por la Data API (HTTPS).
+  #checkov:skip=CKV2_AWS_12:Nadie usa el grupo por defecto; Aurora tiene su propio grupo sin reglas de entrada.
   cidr_block           = var.cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
