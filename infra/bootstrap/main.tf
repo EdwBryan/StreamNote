@@ -14,7 +14,10 @@ provider "aws" {
 }
 
 data "aws_caller_identity" "me" {}
-
+variable "state_bucket" {
+  type        = string
+  description = "Bucket S3 donde se guarda el estado remoto de Terraform"
+}
 locals {
   region  = "us-east-2"
   account = data.aws_caller_identity.me.account_id
@@ -25,7 +28,7 @@ locals {
   # Recursos del stack de dev: todos se llaman streamnote-dev-*
   prefix = "streamnote-dev"
   # Estado del laboratorio (bucket creado a mano en us-east-2)
-  state_bucket = "streamnote-tfstate-ohio-666791"
+  state_bucket = var.state_bucket
   state_key    = "lab09/dev/terraform.tfstate"
 }
 
