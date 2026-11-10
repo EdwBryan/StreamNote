@@ -30,6 +30,10 @@ locals {
 
 # 1) Bucket del estado de Terraform (el número de cuenta lo hace único)
 resource "aws_s3_bucket" "tfstate" {
+  #checkov:skip=CKV_AWS_145:Cifrado SSE-S3 (AES-256); con KMS el rol del pipeline también necesitaría permisos sobre la llave.
+  #checkov:skip=CKV_AWS_18:Un bucket de logs de acceso no está en el diagrama; solo el rol del pipeline puede leer el estado.
+  #checkov:skip=CKV2_AWS_62:Nada reacciona a los cambios del estado.
+  #checkov:skip=CKV_AWS_144:Una sola región por diseño; el estado tiene versionado para recuperarlo.
   bucket = "streamnote-tfstate-${data.aws_caller_identity.me.account_id}"
 
   lifecycle {
@@ -41,6 +45,24 @@ resource "aws_s3_bucket_versioning" "tfstate" {
   bucket = aws_s3_bucket.tfstate.id
   versioning_configuration {
     status = "Enabled" # si el estado se daña, se recupera una versión anterior
+  }
+}
+
+# Las versiones viejas del estado se borran a los 90 días
+resource "aws_s3_bucket_lifecycle_configuration" "tfstate" {
+  bucket     = aws_s3_bucket.tfstate.id
+  depends_on = [aws_s3_bucket_versioning.tfstate]
+
+  rule {
+    id     = "versiones-viejas"
+    status = "Enabled"
+    filter {}
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
   }
 }
 
@@ -87,6 +109,7 @@ resource "aws_iam_role" "github_deploy" {
 # 4) Mínimo privilegio: solo lo que el stack de dev crea, acotado por ARN donde la API lo permite.
 #    Va en dos políticas porque una administrada admite como máximo 6144 caracteres.
 data "aws_iam_policy_document" "deploy_app" {
+  #checkov:skip=CKV_AWS_356:Crear un pool de Cognito y entregar logs de API Gateway no aceptan ARN; esas acciones van con "*".
   # --- Estado de Terraform: solo la llave del laboratorio y su lock ---
   statement {
     sid       = "StateList"
@@ -195,7 +218,20 @@ data "aws_iam_policy_document" "deploy_app" {
       "logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy",
       "logs:TagResource", "logs:UntagResource", "logs:ListTagsForResource",
     ]
-    resources = ["arn:aws:logs:${local.region}:${local.account}:log-group:/aws/lambda/${local.prefix}-*"]
+    resources = [
+      "arn:aws:logs:${local.region}:${local.account}:log-group:/aws/lambda/${local.prefix}-*",
+      "arn:aws:logs:${local.region}:${local.account}:log-group:/aws/apigateway/${local.prefix}-*",
+      "arn:aws:logs:${local.region}:${local.account}:log-group:/aws/rds/cluster/${local.prefix}-*",
+    ]
+  }
+  # API Gateway exige estos permisos para mandar sus logs de acceso a CloudWatch
+  statement {
+    sid = "LogsEntregaApi"
+    actions = [
+      "logs:CreateLogDelivery", "logs:GetLogDelivery", "logs:UpdateLogDelivery", "logs:DeleteLogDelivery",
+      "logs:ListLogDeliveries", "logs:PutResourcePolicy", "logs:DescribeResourcePolicies",
+    ]
+    resources = ["*"]
   }
 
   # --- API Gateway HTTP API (los ARN usan IDs aleatorios: se acota a la región) ---
@@ -232,6 +268,7 @@ data "aws_iam_policy_document" "deploy_app" {
 }
 
 data "aws_iam_policy_document" "deploy_datos" {
+  #checkov:skip=CKV_AWS_356:Las lecturas de EC2 (Describe*) y crear la VPC no aceptan ARN; crear va limitado a la región con una condición.
   # --- Aurora (RDS), su secreto y la Data API de las migraciones ---
   # Al crear el cluster, Terraform revisa si pertenece a un cluster global (solo lectura)
   statement {
@@ -380,7 +417,7 @@ data "aws_iam_policy_document" "deploy_datos" {
       "s3:GetBucket*", "s3:PutBucketPolicy", "s3:DeleteBucketPolicy", "s3:PutBucketPublicAccessBlock",
       "s3:PutBucketTagging", "s3:GetAccelerateConfiguration", "s3:GetLifecycleConfiguration",
       "s3:PutLifecycleConfiguration", "s3:GetReplicationConfiguration",
-      "s3:GetEncryptionConfiguration", "s3:PutEncryptionConfiguration",
+      "s3:GetEncryptionConfiguration", "s3:PutEncryptionConfiguration", "s3:PutBucketVersioning",
     ]
     resources = ["arn:aws:s3:::${local.prefix}-*"]
   }
@@ -410,10 +447,16 @@ data "aws_iam_policy_document" "deploy_datos" {
     ]
     resources = ["arn:aws:cloudfront::${local.account}:origin-access-control/*"]
   }
+  statement {
+    sid       = "CloudFrontCabeceras"
+    actions   = ["cloudfront:GetResponseHeadersPolicy"]
+    resources = ["arn:aws:cloudfront::${local.account}:response-headers-policy/*"]
+  }
 }
 
 # Lo que protege el stack: WAF, alarmas y respaldos
 data "aws_iam_policy_document" "deploy_proteccion" {
+  #checkov:skip=CKV_AWS_356:DescribeAlarms y backup-storage:MountCapsule no aceptan ARN.
   statement {
     sid = "Waf"
     actions = [
