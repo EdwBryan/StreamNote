@@ -130,7 +130,7 @@ data "aws_iam_policy_document" "deploy_app" {
     ]
     resources = ["arn:aws:iam::${local.account}:role/${local.prefix}-*"]
   }
-  # Solo se puede adjuntar la política de logs de Lambda: nunca una política amplia
+  # Solo se pueden adjuntar la de logs de Lambda y la de AWS Backup: nunca una política amplia
   statement {
     sid       = "StackRolesAttach"
     actions   = ["iam:AttachRolePolicy", "iam:DetachRolePolicy"]
@@ -138,7 +138,10 @@ data "aws_iam_policy_document" "deploy_app" {
     condition {
       test     = "ArnEquals"
       variable = "iam:PolicyARN"
-      values   = ["arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"]
+      values = [
+        "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+        "arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup",
+      ]
     }
   }
   statement {
@@ -434,6 +437,50 @@ data "aws_iam_policy_document" "deploy_proteccion" {
       "sns:ListSubscriptionsByTopic", "sns:TagResource", "sns:UntagResource", "sns:ListTagsForResource",
     ]
     resources = ["arn:aws:sns:${local.region}:${local.account}:${local.prefix}-*"]
+  }
+  statement {
+    sid = "BackupVault"
+    actions = [
+      "backup:CreateBackupVault", "backup:DescribeBackupVault", "backup:DeleteBackupVault",
+      "backup:ListRecoveryPointsByBackupVault", "backup:DeleteRecoveryPoint",
+      "backup:TagResource", "backup:UntagResource", "backup:ListTags",
+    ]
+    resources = ["arn:aws:backup:${local.region}:${local.account}:backup-vault:${local.prefix}-*"]
+  }
+  statement {
+    sid = "BackupPlan"
+    actions = [
+      "backup:CreateBackupPlan", "backup:GetBackupPlan", "backup:UpdateBackupPlan", "backup:DeleteBackupPlan",
+      "backup:CreateBackupSelection", "backup:GetBackupSelection", "backup:DeleteBackupSelection",
+      "backup:TagResource", "backup:UntagResource", "backup:ListTags",
+    ]
+    resources = ["arn:aws:backup:${local.region}:${local.account}:backup-plan:*"] # el id del plan es aleatorio
+  }
+  # Crear un vault exige esto aunque no sea un recurso propio
+  statement {
+    sid       = "BackupStorage"
+    actions   = ["backup-storage:MountCapsule"]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "KmsViaBackup"
+    actions   = ["kms:DescribeKey", "kms:CreateGrant", "kms:Decrypt", "kms:GenerateDataKey", "kms:RetireGrant"]
+    resources = ["arn:aws:kms:${local.region}:${local.account}:key/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["backup.${local.region}.amazonaws.com"]
+    }
+  }
+  statement {
+    sid       = "PassBackupRole"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:aws:iam::${local.account}:role/${local.prefix}-backup"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["backup.amazonaws.com"]
+    }
   }
 }
 
