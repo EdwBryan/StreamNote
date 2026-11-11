@@ -72,19 +72,28 @@ jobs:
             echo "CF_ID=$(terraform output -raw cloudfront_id)"
             echo "DB_CLUSTER_ARN=$(terraform output -raw db_cluster_arn)"
             echo "DB_SECRET_ARN=$(terraform output -raw db_secret_arn)"
-          } >> "$GITHUB_ENV"
+            echo "AUTH_MODE=$(terraform output -raw auth_mode)"
+            echo "COGNITO_DOMAIN=$(terraform output -raw cognito_domain)"
+            echo "COGNITO_CLIENT_ID=$(terraform output -raw cognito_client_id)"
+            } >> "$GITHUB_ENV"
 
       # 2) Base de datos: migraciones por la Data API (HTTPS + IAM, sin túnel)
       - name: Migraciones
         working-directory: backend
         run: npm run migrate:aws
 
-      # 3) Web: compilar con la URL real de la API, subir y refrescar la caché de CloudFront
+      # 3) Web: compilar con la URL real de la API y los datos públicos de Cognito,
+      #    subir y refrescar la caché de CloudFront
       - name: Publicar la web
         working-directory: web
+        env:
+          VITE_API_URL: ${{ env.API_URL }}
+          VITE_AUTH_MODE: ${{ env.AUTH_MODE }}
+          VITE_COGNITO_DOMAIN: ${{ env.COGNITO_DOMAIN }}
+          VITE_COGNITO_CLIENT_ID: ${{ env.COGNITO_CLIENT_ID }}
         run: |
           npm ci
-          VITE_API_URL="$API_URL" npm run build
+          npm run build
           aws s3 sync dist "s3://$WEB_BUCKET" --delete
           aws cloudfront create-invalidation --distribution-id "$CF_ID" --paths "/*"
 
