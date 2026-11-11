@@ -19,6 +19,11 @@ resource "aws_dynamodb_table" "notifications" {
     name = "sk"
     type = "S"
   }
+
+  # Permite volver la tabla a cualquier segundo de los últimos 35 días
+  point_in_time_recovery {
+    enabled = true
+  }
 }
 
 output "table_name" {
