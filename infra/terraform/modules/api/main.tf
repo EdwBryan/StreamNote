@@ -162,6 +162,12 @@ resource "aws_iam_role_policy" "app" {
 }
 
 resource "aws_lambda_function" "this" {
+  #checkov:skip=CKV_AWS_117:Las Lambdas van fuera de la VPC (diagrama, etiqueta 9): así no necesitan NAT.
+  #checkov:skip=CKV_AWS_116:Ninguna se invoca en modo asíncrono: la API espera la respuesta y las colas ya tienen su DLQ.
+  #checkov:skip=CKV_AWS_115:La cuenta tiene 10 ejecuciones a la vez y AWS exige dejar 10 libres, así que no se puede reservar. Pendiente: pedir el aumento de cuota.
+  #checkov:skip=CKV_AWS_173:Las variables se cifran con la llave de Lambda; la clave de Aurora no está aquí, está en Secrets Manager.
+  #checkov:skip=CKV_AWS_272:Solo el pipeline puede subir código (rol por OIDC y rama protegida); firmar el código no está en el diagrama.
+  #checkov:skip=CKV_AWS_50:Las trazas de X-Ray no están en el diagrama; los logs de cada Lambda van a CloudWatch.
   for_each         = local.functions
   function_name    = "${var.prefix}-${each.key}"
   role             = aws_iam_role.lambda[each.key].arn
@@ -210,16 +216,31 @@ resource "aws_apigatewayv2_integration" "http" {
 }
 
 resource "aws_apigatewayv2_route" "this" {
+  #checkov:skip=CKV_AWS_309:Cada Lambda valida el token en las rutas que lo piden; el authorizer de Cognito en API Gateway es fase 2.
   for_each  = local.rutas
   api_id    = aws_apigatewayv2_api.http.id
   route_key = each.key
   target    = "integrations/${aws_apigatewayv2_integration.http[each.value].id}"
 }
 
+# Logs de acceso de la API: quién llamó, a qué ruta y qué respondió
+resource "aws_cloudwatch_log_group" "api" {
+  #checkov:skip=CKV_AWS_158:Cifrado con la llave de CloudWatch; una llave propia cuesta 1 USD al mes.
+  name              = "/aws/apigateway/${var.prefix}-api"
+  retention_in_days = 365
+}
+
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.http.id
   name        = "$default"
   auto_deploy = true
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.api.arn
+    format = jsonencode({
+      requestId = "$context.requestId", ip = "$context.identity.sourceIp", metodo = "$context.httpMethod",
+      ruta      = "$context.routeKey", estado = "$context.status", ms = "$context.responseLatency",
+    })
+  }
   default_route_settings {
     throttling_burst_limit = 200
     throttling_rate_limit  = 100
