@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { handleUnauthorized, loadSession, realtime, saveSession, setToken, type User } from './api';
+import { logout as cognitoLogout } from './cognito';
 import { Login } from './pages/Login';
 import { Home } from './pages/Home';
 import { CommunityPage } from './pages/Community';
@@ -87,7 +88,14 @@ function Shell({ children }: { children: ReactNode }) {
           <span className={`dot ${online ? 'on' : 'off'}`} title={online ? 'Conectado en tiempo real' : 'Reconectando…'} />
           <Notifications />
           <span className="who">{user?.name}</span>
-          <button type="button" className="link" onClick={signOut}>
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              signOut();
+              cognitoLogout(); // con Cognito, cierra también la sesión de su página
+            }}
+          >
             Salir
           </button>
         </div>
