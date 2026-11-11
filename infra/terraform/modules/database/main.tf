@@ -88,6 +88,7 @@ resource "aws_rds_cluster_instance" "this" {
   engine             = aws_rds_cluster.this.engine
   engine_version     = aws_rds_cluster.this.engine_version
   promotion_tier     = each.value
+  auto_minor_version_upgrade = true # parches menores de Postgres automáticos
 }
 
 output "cluster_arn" {
