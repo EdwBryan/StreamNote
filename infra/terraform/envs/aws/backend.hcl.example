@@ -1,0 +1,4 @@
+# Para correr Terraform desde tu PC: copia este archivo como backend.hcl (no se sube)
+bucket = "streamnote-tfstate-<cuenta>"
+key    = "lab09/dev/terraform.tfstate"
+region = "us-east-1"
