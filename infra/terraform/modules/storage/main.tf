@@ -75,6 +75,16 @@ resource "aws_s3_bucket_lifecycle_configuration" "recordings" {
       storage_class = "DEEP_ARCHIVE"
     }
   }
+
+  # Las subidas que quedaron a medias se borran al día siguiente
+  rule {
+    id     = "subidas-incompletas"
+    status = "Enabled"
+    filter {}
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
 }
 
 output "bucket_name" {
