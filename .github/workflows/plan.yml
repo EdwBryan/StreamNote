@@ -25,6 +25,12 @@ jobs:
           npm run typecheck
           npm run build:lambda
 
+      - name: Pruebas de la web
+        working-directory: web
+        run: |
+          npm ci
+          npm test
+
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.10.5"

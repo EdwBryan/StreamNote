@@ -88,6 +88,14 @@ jobs:
           aws s3 sync dist "s3://$WEB_BUCKET" --delete
           aws cloudfront create-invalidation --distribution-id "$CF_ID" --paths "/*"
 
+      # 4) Prueba después del deploy: la API responde y pide token.
+      #    La web no se prueba aquí porque CloudFront solo deja entrar desde Perú.
+      - name: Probar la API
+        run: |
+          estado=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/me")
+          echo "GET /me sin token: $estado (se espera 401)"
+          test "$estado" = 401
+
       - name: Resumen
         run: |
           echo "### StreamNote desplegado en \`$STAGE\`" >> "$GITHUB_STEP_SUMMARY"
