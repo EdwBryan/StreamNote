@@ -109,7 +109,7 @@ resource "aws_iam_role" "github_deploy" {
 # 4) Mínimo privilegio: solo lo que el stack de dev crea, acotado por ARN donde la API lo permite.
 #    Va en dos políticas porque una administrada admite como máximo 6144 caracteres.
 data "aws_iam_policy_document" "deploy_app" {
-  #checkov:skip=CKV_AWS_356:Crear un pool de Cognito y entregar logs de API Gateway no aceptan ARN; esas acciones van con "*".
+  #checkov:skip=CKV_AWS_356:Crear un pool de Cognito, consultar su dominio y entregar logs de API Gateway no aceptan ARN; esas acciones van con "*".
   # --- Estado de Terraform: solo la llave del laboratorio y su lock ---
   statement {
     sid       = "StateList"
@@ -261,9 +261,16 @@ data "aws_iam_policy_document" "deploy_app" {
       "cognito-idp:GetUserPoolMfaConfig", "cognito-idp:SetUserPoolMfaConfig",
       "cognito-idp:CreateUserPoolClient", "cognito-idp:DescribeUserPoolClient",
       "cognito-idp:UpdateUserPoolClient", "cognito-idp:DeleteUserPoolClient",
+      "cognito-idp:CreateUserPoolDomain", "cognito-idp:UpdateUserPoolDomain", "cognito-idp:DeleteUserPoolDomain",
       "cognito-idp:TagResource", "cognito-idp:UntagResource", "cognito-idp:ListTagsForResource",
     ]
     resources = ["arn:aws:cognito-idp:${local.region}:${local.account}:userpool/*"]
+  }
+  # Dominio de la página de inicio de sesión: consultarlo solo recibe el nombre del dominio
+  statement {
+    sid       = "CognitoDescribeDomain"
+    actions   = ["cognito-idp:DescribeUserPoolDomain"]
+    resources = ["*"] # la API no admite ARN (solo lectura)
   }
 }
 
