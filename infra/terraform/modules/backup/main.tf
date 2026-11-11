@@ -16,6 +16,7 @@ variable "force_destroy" {
 }
 
 resource "aws_backup_vault" "this" {
+  #checkov:skip=CKV_AWS_166:Cifrado con la llave de AWS Backup; una llave propia cuesta 1 USD al mes.
   name          = "${var.prefix}-backup"
   force_destroy = var.force_destroy
 }

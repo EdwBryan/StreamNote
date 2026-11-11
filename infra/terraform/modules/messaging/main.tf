@@ -12,8 +12,8 @@ variable "queues" {
     max_receive_count  = number
   }))
   default = {
-    note-writes   = { visibility_timeout = 90, max_receive_count = 3 }  # RNF-05, RNF-10
-    domain-events = { visibility_timeout = 30, max_receive_count = 3 }  # RNF-11
+    note-writes   = { visibility_timeout = 90, max_receive_count = 3 }   # RNF-05, RNF-10
+    domain-events = { visibility_timeout = 30, max_receive_count = 3 }   # RNF-11
     media-jobs    = { visibility_timeout = 300, max_receive_count = 10 } # unir y subir grabaciones
   }
 }
@@ -22,6 +22,7 @@ resource "aws_sqs_queue" "dlq" {
   for_each                  = var.queues
   name                      = "${var.prefix}-${each.key}-dlq"
   message_retention_seconds = 1209600
+  sqs_managed_sse_enabled   = true # cifrado en reposo con la llave de SQS (gratis)
 }
 
 resource "aws_sqs_queue" "this" {
@@ -29,6 +30,7 @@ resource "aws_sqs_queue" "this" {
   name                       = "${var.prefix}-${each.key}"
   visibility_timeout_seconds = each.value.visibility_timeout
   message_retention_seconds  = 1209600 # 14 días: si la base cae, nada se pierde
+  sqs_managed_sse_enabled    = true
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.dlq[each.key].arn
     maxReceiveCount     = each.value.max_receive_count

@@ -16,6 +16,7 @@ variable "alert_email" {
 }
 
 resource "aws_sns_topic" "alertas" {
+  #checkov:skip=CKV_AWS_26:Con la llave administrada aws/sns CloudWatch no puede publicar la alarma; haría falta una llave propia (1 USD al mes) para un aviso que no lleva datos de usuarios.
   name = "${var.prefix}-alertas"
 }
 

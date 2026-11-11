@@ -62,6 +62,8 @@ resource "aws_cloudfront_origin_access_control" "web" {
 
 # RNF-06: si una IP manda más de 300 solicitudes en 5 minutos, se bloquea
 resource "aws_wafv2_web_acl" "web" {
+  #checkov:skip=CKV_AWS_192:La regla de Log4j es para Java; el backend es Node.js.
+  #checkov:skip=CKV2_AWS_31:Guardar cada solicitud del WAF no está en el diagrama; las métricas del WAF ya llegan a CloudWatch.
   name  = "${var.prefix}-web"
   scope = "CLOUDFRONT" # el WAF de CloudFront siempre vive en us-east-1
 
@@ -97,6 +99,12 @@ resource "aws_wafv2_web_acl" "web" {
 }
 
 resource "aws_cloudfront_distribution" "web" {
+  #checkov:skip=CKV_AWS_174:Sin dominio propio se usa el certificado de CloudFront, que no deja fijar la versión de TLS.
+  #checkov:skip=CKV2_AWS_42:No hay dominio propio, así que no hay certificado propio.
+  #checkov:skip=CKV_AWS_86:Un bucket para los logs de CloudFront no está en el diagrama.
+  #checkov:skip=CKV_AWS_310:Hay un solo origen (S3, 99.99 %); un origen de respaldo sería otro bucket en otra región.
+  #checkov:skip=CKV2_AWS_47:La regla de Log4j es para Java; el backend es Node.js.
+  #checkov:skip=CKV2_AWS_32:Sí tiene cabeceras de seguridad (política administrada SecurityHeadersPolicy); Checkov solo reconoce una creada en el código.
   enabled             = true
   default_root_object = "index.html"
   price_class         = "PriceClass_100" # puntos de presencia más baratos (Norteamérica y Europa); Perú se atiende desde EE. UU.
@@ -116,6 +124,8 @@ resource "aws_cloudfront_distribution" "web" {
     cached_methods         = ["GET", "HEAD"]
     compress               = true
     cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6" # política administrada CachingOptimized
+    # Cabeceras de seguridad (HSTS, nosniff, X-Frame-Options...): política administrada SecurityHeadersPolicy
+    response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03"
   }
 
   # La app es una SPA: cualquier ruta (/notas, /comunidades/...) debe devolver index.html
@@ -131,8 +141,10 @@ resource "aws_cloudfront_distribution" "web" {
   }
 
   restrictions {
+    # Los usuarios son estudiantes en Perú
     geo_restriction {
-      restriction_type = "none"
+      restriction_type = "whitelist"
+      locations        = ["PE"]
     }
   }
 
