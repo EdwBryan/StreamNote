@@ -42,8 +42,12 @@ jobs:
           terraform_version: "1.10.5"
           terraform_wrapper: false   # sin esto "terraform output" devuelve texto extra
 
-      # 1) Infraestructura
-      - name: Terraform apply
+      - uses: open-policy-agent/setup-opa@v2
+        with:
+          version: 1.4.2
+
+      # 1) Infraestructura: primero el plan, después las reglas del equipo, y recién ahí el apply
+      - name: Terraform plan
         working-directory: infra/terraform/envs/aws
         env:
           TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
@@ -51,7 +55,16 @@ jobs:
           terraform init -input=false \
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
             -backend-config="key=lab09/${STAGE}/terraform.tfstate"
-          terraform apply -input=false -auto-approve -var-file="${STAGE}.tfvars"
+          terraform plan -input=false -var-file="${STAGE}.tfvars" -out=tfplan
+          terraform show -json tfplan > plan.json
+
+      - name: Reglas del equipo (OPA)
+        run: opa eval --fail-defined --format pretty -d policies -i infra/terraform/envs/aws/plan.json "data.streamnote.deny[msg]"
+
+      - name: Terraform apply
+        working-directory: infra/terraform/envs/aws
+        run: |
+          terraform apply -input=false tfplan
           {
             echo "API_URL=$(terraform output -raw api_url)"
             echo "WEB_URL=$(terraform output -raw web_url)"
