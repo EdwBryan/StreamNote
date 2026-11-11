@@ -1,0 +1,103 @@
+# Despliegue continuo: cada merge a development aplica Terraform en dev y publica la app.
+# qa y main no despliegan: solo hay un ambiente en AWS para no pagar tres.
+name: deploy
+
+on:
+  push:
+    branches: [development]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      STAGE: dev
+    environment: dev
+    concurrency:
+      group: deploy-dev   # nunca dos despliegues a la vez
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compilar backend para Lambda
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build:lambda
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+          terraform_wrapper: false   # sin esto "terraform output" devuelve texto extra
+
+      - uses: open-policy-agent/setup-opa@v2
+        with:
+          version: 1.4.2
+
+      # 1) Infraestructura: primero el plan, después las reglas del equipo, y recién ahí el apply
+      - name: Terraform plan
+        working-directory: infra/terraform/envs/aws
+        env:
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=lab09/${STAGE}/terraform.tfstate"
+          terraform plan -input=false -var-file="${STAGE}.tfvars" -out=tfplan
+          terraform show -json tfplan > plan.json
+
+      - name: Reglas del equipo (OPA)
+        run: opa eval --fail-defined --format pretty -d policies -i infra/terraform/envs/aws/plan.json "data.streamnote.deny[msg]"
+
+      - name: Terraform apply
+        working-directory: infra/terraform/envs/aws
+        run: |
+          terraform apply -input=false tfplan
+          {
+            echo "API_URL=$(terraform output -raw api_url)"
+            echo "WEB_URL=$(terraform output -raw web_url)"
+            echo "WEB_BUCKET=$(terraform output -raw web_bucket)"
+            echo "CF_ID=$(terraform output -raw cloudfront_id)"
+            echo "DB_CLUSTER_ARN=$(terraform output -raw db_cluster_arn)"
+            echo "DB_SECRET_ARN=$(terraform output -raw db_secret_arn)"
+          } >> "$GITHUB_ENV"
+
+      # 2) Base de datos: migraciones por la Data API (HTTPS + IAM, sin túnel)
+      - name: Migraciones
+        working-directory: backend
+        run: npm run migrate:aws
+
+      # 3) Web: compilar con la URL real de la API, subir y refrescar la caché de CloudFront
+      - name: Publicar la web
+        working-directory: web
+        run: |
+          npm ci
+          VITE_API_URL="$API_URL" npm run build
+          aws s3 sync dist "s3://$WEB_BUCKET" --delete
+          aws cloudfront create-invalidation --distribution-id "$CF_ID" --paths "/*"
+
+      # 4) Prueba después del deploy: la API responde y pide token.
+      #    La web no se prueba aquí porque CloudFront solo deja entrar desde Perú.
+      - name: Probar la API
+        run: |
+          estado=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/me")
+          echo "GET /me sin token: $estado (se espera 401)"
+          test "$estado" = 401
+
+      - name: Resumen
+        run: |
+          echo "### StreamNote desplegado en \`$STAGE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Web: $WEB_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API: $API_URL" >> "$GITHUB_STEP_SUMMARY"
