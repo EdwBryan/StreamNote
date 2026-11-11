@@ -51,27 +51,47 @@ resource "aws_db_subnet_group" "this" {
 
 # Sin reglas de entrada: nadie se conecta por red; solo se usa la Data API
 resource "aws_security_group" "db" {
-  name   = "${var.prefix}-db"
-  vpc_id = var.vpc_id
+  name_prefix = "${var.prefix}-db-"
+  description = "Aurora: sin reglas de entrada, solo se usa por la Data API"
+  vpc_id      = var.vpc_id
+
+  # Cambiar la descripción crea un grupo nuevo: primero el nuevo, después se borra el viejo
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Logs de Postgres en CloudWatch (en el diagrama: logs y métricas de Aurora)
+resource "aws_cloudwatch_log_group" "postgresql" {
+  #checkov:skip=CKV_AWS_158:Cifrado con la llave de CloudWatch; una llave propia cuesta 1 USD al mes.
+  name              = "/aws/rds/cluster/${var.prefix}-db/postgresql"
+  retention_in_days = 365
 }
 
 resource "aws_rds_cluster" "this" {
-  cluster_identifier          = "${var.prefix}-db"
-  engine                      = "aurora-postgresql"
-  engine_mode                 = "provisioned"
-  engine_version              = "16.15"
-  database_name               = "streamnote"
-  master_username             = "streamnote"
-  manage_master_user_password = true # el secreto queda en Secrets Manager
-  enable_http_endpoint        = true # RDS Data API
-  db_subnet_group_name        = aws_db_subnet_group.this.name
-  vpc_security_group_ids      = [aws_security_group.db.id]
-  storage_encrypted           = true
-  backup_retention_period     = var.deletion_protection ? 35 : 1
-  deletion_protection         = var.deletion_protection
-  skip_final_snapshot         = !var.deletion_protection # en dev/qa se puede destruir sin snapshot
-  final_snapshot_identifier   = var.deletion_protection ? "${var.prefix}-db-final" : null
-  copy_tags_to_snapshot       = true
+  #checkov:skip=CKV_AWS_327:Cifrado con la llave de RDS (storage_encrypted); una llave propia cuesta 1 USD al mes.
+  #checkov:skip=CKV_AWS_139:La protección contra borrado se activa con is_prod; dev se tiene que poder destruir para no pagar.
+  #checkov:skip=CKV_AWS_162:Nadie se conecta a la base por red: las Lambdas usan la Data API con IAM y el secreto de Secrets Manager.
+  #checkov:skip=CKV2_AWS_27:Registrar cada consulta guardaría en los logs el texto de las notas de los usuarios.
+  #checkov:skip=CKV2_AWS_8:Sí tiene plan de AWS Backup (módulo backup); Checkov no sigue el ARN que entra por variable.
+  cluster_identifier              = "${var.prefix}-db"
+  engine                          = "aurora-postgresql"
+  engine_mode                     = "provisioned"
+  engine_version                  = "16.15"
+  database_name                   = "streamnote"
+  master_username                 = "streamnote"
+  manage_master_user_password     = true # el secreto queda en Secrets Manager
+  enable_http_endpoint            = true # RDS Data API
+  db_subnet_group_name            = aws_db_subnet_group.this.name
+  vpc_security_group_ids          = [aws_security_group.db.id]
+  storage_encrypted               = true
+  backup_retention_period         = var.deletion_protection ? 35 : 1
+  deletion_protection             = var.deletion_protection
+  skip_final_snapshot             = !var.deletion_protection # en dev/qa se puede destruir sin snapshot
+  final_snapshot_identifier       = var.deletion_protection ? "${var.prefix}-db-final" : null
+  copy_tags_to_snapshot           = true
+  enabled_cloudwatch_logs_exports = ["postgresql"]
+  depends_on                      = [aws_cloudwatch_log_group.postgresql]
 
   serverlessv2_scaling_configuration {
     min_capacity             = var.min_acu
@@ -81,13 +101,16 @@ resource "aws_rds_cluster" "this" {
 }
 
 resource "aws_rds_cluster_instance" "this" {
-  for_each           = var.with_reader ? { writer = 0, reader = 1 } : { writer = 0 }
-  identifier         = "${var.prefix}-db-${each.key}"
-  cluster_identifier = aws_rds_cluster.this.id
-  instance_class     = "db.serverless"
-  engine             = aws_rds_cluster.this.engine
-  engine_version     = aws_rds_cluster.this.engine_version
-  promotion_tier     = each.value
+  #checkov:skip=CKV_AWS_353:Performance Insights no está en el diagrama; los logs de Postgres ya van a CloudWatch.
+  #checkov:skip=CKV_AWS_118:El monitoreo mejorado necesita otro rol y cobra por los logs; con las métricas de CloudWatch alcanza.
+  for_each                   = var.with_reader ? { writer = 0, reader = 1 } : { writer = 0 }
+  identifier                 = "${var.prefix}-db-${each.key}"
+  cluster_identifier         = aws_rds_cluster.this.id
+  instance_class             = "db.serverless"
+  engine                     = aws_rds_cluster.this.engine
+  engine_version             = aws_rds_cluster.this.engine_version
+  promotion_tier             = each.value
+  auto_minor_version_upgrade = true
 }
 
 output "cluster_arn" {
