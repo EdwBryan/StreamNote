@@ -5,9 +5,9 @@
 #   terraform init -backend-config=backend.hcl   (copia backend.hcl.example)
 #   terraform plan -var-file=dev.tfvars
 #
-# Lo aplica el pipeline (.github/workflows/deploy.yml) según la rama:
-#   develop -> dev   |   qa -> qa   |   main -> prod
-# Pendiente: adaptador de Amazon IVS (MEDIA_PROVIDER=ivs), IVS Chat, Web Push, WAF, monitoreo.
+# Lo aplica el pipeline (.github/workflows/deploy.yml) con cada merge a development, solo en dev:
+# qa y main no despliegan, para no pagar tres ambientes. destroy.yml lo borra a mano.
+# Pendiente (fase 2): adaptador de Amazon IVS (MEDIA_PROVIDER=ivs), IVS Chat y Web Push.
 
 terraform {
   required_version = ">= 1.10"
