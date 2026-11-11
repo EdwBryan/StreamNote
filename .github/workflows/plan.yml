@@ -38,3 +38,9 @@ jobs:
         run: |
           terraform init -input=false -backend=false
           terraform validate
+
+      # Configuraciones inseguras. Falla el PR si algo no está corregido ni justificado con #checkov:skip
+      - name: Checkov
+        run: |
+          pip install --quiet checkov==3.4.3
+          checkov -d infra --framework terraform --compact --quiet
