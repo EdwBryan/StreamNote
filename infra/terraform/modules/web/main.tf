@@ -101,9 +101,11 @@ resource "aws_cloudfront_distribution" "web" {
     response_page_path = "/index.html"
   }
 
-  restrictions {
+    restrictions {
+    # Los usuarios son estudiantes en Perú
     geo_restriction {
-      restriction_type = "none"
+      restriction_type = "whitelist"
+      locations        = ["PE"]
     }
   }
 
