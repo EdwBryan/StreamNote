@@ -1,0 +1,57 @@
+# Borra todo dev para que no siga cobrando. Solo se corre a mano y hay que escribir "destruir".
+# Para volver a levantarlo basta con otro merge a development.
+name: destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: 'Escribe "destruir" para borrar todo dev'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  destroy:
+    if: inputs.confirmar == 'destruir'
+    runs-on: ubuntu-latest
+    env:
+      STAGE: dev
+    environment: dev
+    concurrency:
+      group: deploy-dev   # nunca a la vez que un deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Terraform necesita el zip de las Lambdas aunque sea para borrarlas
+      - name: Compilar backend para Lambda
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build:lambda
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Terraform destroy
+        working-directory: infra/terraform/envs/aws
+        env:
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=lab09/${STAGE}/terraform.tfstate"
+          terraform destroy -input=false -auto-approve -var-file="${STAGE}.tfvars"
