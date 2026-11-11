@@ -155,6 +155,20 @@ resource "aws_cognito_user_pool_client" "web" {
   supported_identity_providers         = ["COGNITO"] # agregar "Google" al configurar el IdP
   callback_urls                        = [module.web.url]
   logout_urls                          = [module.web.url]
+
+  # El token de identidad dura 12 horas (por defecto 1): la sesión no se corta en plena clase
+  id_token_validity = 12
+  token_validity_units {
+    id_token = "hours"
+  }
+}
+
+# Página de inicio de sesión que aloja Cognito (hosted UI clásica, sin diseño propio).
+# El prefijo es único por región entre todas las cuentas de AWS: si ya está tomado, cámbialo.
+resource "aws_cognito_user_pool_domain" "this" {
+  domain                = "${local.prefix}-upao"
+  user_pool_id          = aws_cognito_user_pool.this.id
+  managed_login_version = 1
 }
 
 # ---------- EventBridge Scheduler: deja los recordatorios en la cola de eventos ----------
@@ -258,6 +272,11 @@ output "cognito_user_pool_id" {
 
 output "cognito_client_id" {
   value = aws_cognito_user_pool_client.web.id
+}
+
+# Dirección de la página de inicio de sesión (la web la recibe al compilarse)
+output "cognito_domain" {
+  value = "${aws_cognito_user_pool_domain.this.domain}.auth.us-east-1.amazoncognito.com"
 }
 
 output "auth_mode" {
