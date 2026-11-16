@@ -109,7 +109,7 @@ resource "aws_iam_role" "github_deploy" {
 # 4) Mínimo privilegio: solo lo que el stack de dev crea, acotado por ARN donde la API lo permite.
 #    Va en dos políticas porque una administrada admite como máximo 6144 caracteres.
 data "aws_iam_policy_document" "deploy_app" {
-  #checkov:skip=CKV_AWS_356:Crear un pool de Cognito y entregar logs de API Gateway no aceptan ARN; esas acciones van con "*".
+  #checkov:skip=CKV_AWS_356:Crear un pool de Cognito, consultar un mapping de cola ya borrado y entregar logs de API Gateway no aceptan ARN; esas acciones van con "*".
   # --- Estado de Terraform: solo la llave del laboratorio y su lock ---
   statement {
     sid       = "StateList"
@@ -204,6 +204,12 @@ data "aws_iam_policy_document" "deploy_app" {
     sid       = "LambdaEventSourceMappingsRead"
     actions   = ["lambda:GetEventSourceMapping", "lambda:ListTags", "lambda:TagResource", "lambda:UntagResource"]
     resources = ["arn:aws:lambda:${local.region}:${local.account}:event-source-mapping:*"]
+  }
+  # Al borrar, Terraform espera a que el mapping desaparezca; ya borrado, Lambda pide el permiso sobre "*"
+  statement {
+    sid       = "LambdaEventSourceMappingsGet"
+    actions   = ["lambda:GetEventSourceMapping"]
+    resources = ["*"] # solo lectura
   }
 
   # --- CloudWatch Logs: grupos que crea Lambda para las funciones del stack ---
@@ -495,6 +501,21 @@ data "aws_iam_policy_document" "deploy_proteccion" {
       "backup:TagResource", "backup:UntagResource", "backup:ListTags",
     ]
     resources = ["arn:aws:backup:${local.region}:${local.account}:backup-vault:${local.prefix}-*"]
+  }
+  # Vaciar el vault en el destroy: cada copia es un recurso aparte (su id es aleatorio).
+  # Las de Aurora son snapshots de RDS que AWS Backup nombra "awsbackup:..."
+  statement {
+    sid     = "BackupRecoveryPoints"
+    actions = ["backup:DescribeRecoveryPoint", "backup:DeleteRecoveryPoint"]
+    resources = [
+      "arn:aws:backup:${local.region}:${local.account}:recovery-point:*",
+      "arn:aws:rds:${local.region}:${local.account}:cluster-snapshot:awsbackup:*",
+    ]
+  }
+  statement {
+    sid       = "BackupRdsSnapshots"
+    actions   = ["rds:DescribeDBClusterSnapshots", "rds:DeleteDBClusterSnapshot"]
+    resources = ["arn:aws:rds:${local.region}:${local.account}:cluster-snapshot:awsbackup:*"]
   }
   statement {
     sid = "BackupPlan"
