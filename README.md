@@ -2,6 +2,12 @@
 
 Apuntes modulares, comunidades con permisos y clases en vivo donde los participantes comparten módulos de sus notas entre sí. Esta versión corre completa en tu computadora y está organizada para desplegarse después en AWS con Terraform sin reescribir el código.
 
+## Arquitectura en AWS
+
+![Diagrama de arquitectura de StreamNote en AWS](docs/arquitectura/diagrama.png)
+
+Lo atenuado es fase 2: está diseñado, pero todavía no está en el código. Para editar el diagrama, abre `docs/arquitectura/diagrama.excalidraw` en [excalidraw.com](https://excalidraw.com) (menú → Abrir).
+
 ## Arrancar en local
 
 Necesitas **Docker Desktop** (o Docker Engine con Compose v2.20 o superior) y Chrome, Edge o Firefox.
