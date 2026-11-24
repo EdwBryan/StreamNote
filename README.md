@@ -6,7 +6,7 @@ Apuntes modulares, comunidades con permisos y clases en vivo donde los participa
 
 ![Diagrama de arquitectura de StreamNote en AWS](docs/arquitectura/diagrama.png)
 
-Lo atenuado es fase 2: está diseñado, pero todavía no está en el código. Para editar el diagrama, abre `docs/arquitectura/diagrama.excalidraw` en [excalidraw.com](https://excalidraw.com) (menú → Abrir).
+Es el diseño completo. El video con Amazon IVS, la edición en vivo y los avisos push todavía se están construyendo. Para editar el diagrama, abre `docs/arquitectura/diagrama.excalidraw` en [excalidraw.com](https://excalidraw.com) (menú → Abrir).
 
 ## Arrancar en local
 
