@@ -1,4 +1,5 @@
-# RNF-02: copia diaria de Aurora y DynamoDB que se guarda 2 años (AWS Backup).
+# RNF-02: copia diaria de Aurora y DynamoDB (AWS Backup). Se guarda 2 años en producción;
+# cada ambiente fija su retención en su .tfvars.
 
 variable "prefix" {
   type = string
@@ -15,6 +16,16 @@ variable "force_destroy" {
   default     = false
 }
 
+variable "retention_days" {
+  description = "Días que se guarda cada copia (RNF-02: 2 años en producción)"
+  type        = number
+  default     = 730
+  validation {
+    condition     = var.retention_days >= 1
+    error_message = "La retención tiene que ser de al menos 1 día."
+  }
+}
+
 resource "aws_backup_vault" "this" {
   #checkov:skip=CKV_AWS_166:Cifrado con la llave de AWS Backup; una llave propia cuesta 1 USD al mes.
   name          = "${var.prefix}-backup"
@@ -25,12 +36,12 @@ resource "aws_backup_plan" "diario" {
   name = "${var.prefix}-diario"
 
   rule {
-    rule_name         = "diario-2-anios"
+    rule_name         = "diario" # antes "diario-2-anios": el nombre ya no sería cierto en dev
     target_vault_name = aws_backup_vault.this.name
     schedule          = "cron(0 8 * * ? *)" # 3:00 a. m. en Perú
 
     lifecycle {
-      delete_after = 730
+      delete_after = var.retention_days
     }
   }
 }

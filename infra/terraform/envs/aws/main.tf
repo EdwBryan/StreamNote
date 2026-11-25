@@ -68,6 +68,12 @@ variable "db_with_reader" {
   default     = true
 }
 
+variable "backup_retention_days" {
+  description = "Días que AWS Backup guarda cada copia"
+  type        = number
+  default     = 730
+}
+
 variable "alert_email" {
   description = "Correo que recibe las alarmas (secreto ALERT_EMAIL de GitHub)"
   type        = string
@@ -125,10 +131,11 @@ module "database" {
 }
 
 module "backup" {
-  source        = "../../modules/backup"
-  prefix        = local.prefix
-  resource_arns = [module.database.cluster_arn, module.notifications.table_arn]
-  force_destroy = !var.is_prod
+  source         = "../../modules/backup"
+  prefix         = local.prefix
+  resource_arns  = [module.database.cluster_arn, module.notifications.table_arn]
+  force_destroy  = !var.is_prod
+  retention_days = var.backup_retention_days
 }
 
 # Firma de los tokens del login de desarrollo (solo se usa con auth_mode = local).
