@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { handleUnauthorized, loadSession, realtime, saveSession, setToken, type User } from './api';
+import { handleUnauthorized, loadSession, onDespertando, realtime, saveSession, setToken, type User } from './api';
 import { logout as cognitoLogout } from './cognito';
 import { Login } from './pages/Login';
 import { Home } from './pages/Home';
@@ -62,7 +62,19 @@ export function App() {
           </Routes>
         )}
       </BrowserRouter>
+      <AvisoDespertando />
     </SessionContext.Provider>
+  );
+}
+
+/** Se ve mientras alguna petición espera a que Aurora despierte (tras 1 hora sin uso). */
+function AvisoDespertando() {
+  const [despertando, setDespertando] = useState(false);
+  useEffect(() => onDespertando(setDespertando), []);
+  return (
+    <div className="aviso-despertando" role="status" aria-live="polite" hidden={!despertando}>
+      Despertando la base de datos… puede tardar unos segundos.
+    </div>
   );
 }
 
