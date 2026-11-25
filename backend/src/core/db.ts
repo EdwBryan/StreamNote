@@ -11,6 +11,7 @@ import {
   type SqlParameter,
   type Field,
 } from '@aws-sdk/client-rds-data';
+import { HttpError } from './http.js';
 
 export type Params = Record<string, unknown>;
 
@@ -103,6 +104,43 @@ export class PgDb implements Db {
   }
 }
 
+// Aurora se pausa tras 1 hora sin uso y tarda menos de 15 s en despertar.
+// Mientras despierta, la Data API responde DatabaseResumingException sin ejecutar la consulta,
+// así que repetirla es seguro. Límite de 10 s: la Lambda más corta tiene 15 s de tiempo máximo.
+const ESPERA_MS = 2_000;
+const LIMITE_MS = 10_000;
+
+/** Reloj de mientrasDespierta; las pruebas pasan uno falso para no esperar de verdad. */
+export interface Reloj {
+  ahora(): number;
+  dormir(ms: number): Promise<void>;
+}
+
+const relojReal: Reloj = {
+  ahora: () => Date.now(),
+  dormir: (ms) => new Promise((r) => setTimeout(r, ms)),
+};
+
+/**
+ * Repite `fn` solo mientras Aurora está despertando (DatabaseResumingException), cada 2 s.
+ * Cualquier otro error sube tal cual. Si no despierta en 10 s, responde 503 «db_resuming»
+ * para que la web vuelva a intentar sola.
+ */
+export async function mientrasDespierta<T>(fn: () => Promise<T>, reloj: Reloj = relojReal): Promise<T> {
+  const inicio = reloj.ahora();
+  for (;;) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      if (e?.name !== 'DatabaseResumingException') throw e;
+      if (reloj.ahora() - inicio + ESPERA_MS > LIMITE_MS) {
+        throw new HttpError(503, 'La base de datos está despertando. Intenta de nuevo en unos segundos.', 'db_resuming');
+      }
+      await reloj.dormir(ESPERA_MS);
+    }
+  }
+}
+
 /** RDS Data API. Devuelve filas como objetos (formatRecordsAs: JSON). */
 export class DataApiDb implements Db {
   constructor(
@@ -113,14 +151,16 @@ export class DataApiDb implements Db {
 
   async query<T>(sql: string, params: Params = {}): Promise<T[]> {
     const parameters: SqlParameter[] = Object.entries(params).map(([name, value]) => toSqlParameter(name, value));
-    const res = await this.client.send(
-      new ExecuteStatementCommand({
-        ...this.opts,
-        sql,
-        parameters,
-        transactionId: this.transactionId,
-        formatRecordsAs: 'JSON',
-      }),
+    const res = await mientrasDespierta(() =>
+      this.client.send(
+        new ExecuteStatementCommand({
+          ...this.opts,
+          sql,
+          parameters,
+          transactionId: this.transactionId,
+          formatRecordsAs: 'JSON',
+        }),
+      ),
     );
     return res.formattedRecords ? (JSON.parse(res.formattedRecords) as T[]) : [];
   }
@@ -131,7 +171,8 @@ export class DataApiDb implements Db {
 
   async tx<T>(fn: (db: Db) => Promise<T>): Promise<T> {
     if (this.transactionId) return fn(this);
-    const { transactionId } = await this.client.send(new BeginTransactionCommand(this.opts));
+    // Commit y Rollback no se envuelven: si la transacción ya empezó, Aurora está despierta
+    const { transactionId } = await mientrasDespierta(() => this.client.send(new BeginTransactionCommand(this.opts)));
     const inner = new DataApiDb(this.client, this.opts, transactionId);
     try {
       const result = await fn(inner);
