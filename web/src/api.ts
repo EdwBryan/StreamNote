@@ -1,5 +1,6 @@
 // Cliente de la API y del canal en tiempo real.
 import type { FileItem, FolderRow } from './files';
+import { esperaAntesDeReintentar } from './reintento';
 
 export const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:4000';
 
@@ -84,22 +85,53 @@ export const getToken = () => token;
 let onUnauthorized: () => void = () => {};
 export const handleUnauthorized = (fn: () => void) => (onUnauthorized = fn);
 
+// Aviso «Despertando la base de datos…»: cuántas peticiones están esperando a que Aurora despierte.
+// App se suscribe con onDespertando, igual que con realtime.onStatus.
+let esperando = 0;
+const avisos = new Set<(despertando: boolean) => void>();
+export function onDespertando(fn: (despertando: boolean) => void) {
+  avisos.add(fn);
+  return () => void avisos.delete(fn);
+}
+function avisar(delta: 1 | -1) {
+  const antes = esperando > 0;
+  esperando += delta;
+  if (antes !== esperando > 0) avisos.forEach((fn) => fn(esperando > 0));
+}
+
 export async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
-  let res: Response;
+  let avisando = false;
   try {
-    res = await fetch(`${API_URL}${path}`, {
-      method,
-      headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  } catch {
-    throw new ApiError(0, 'No hay conexión con el servidor');
+    for (let intento = 0; ; intento++) {
+      let res: Response;
+      try {
+        res = await fetch(`${API_URL}${path}`, {
+          method,
+          headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
+      } catch {
+        throw new ApiError(0, 'No hay conexión con el servidor');
+      }
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      // Aurora estaba pausada y la consulta no se ejecutó: esperar y repetir es seguro
+      const espera = esperaAntesDeReintentar(res.status, data, intento);
+      if (espera !== null) {
+        if (!avisando) {
+          avisando = true;
+          avisar(1);
+        }
+        await new Promise((r) => setTimeout(r, espera));
+        continue;
+      }
+      if (res.status === 401 && token) onUnauthorized();
+      if (!res.ok) throw new ApiError(res.status, data?.message ?? `Error ${res.status}`);
+      return data as T;
+    }
+  } finally {
+    if (avisando) avisar(-1);
   }
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
-  if (res.status === 401 && token) onUnauthorized();
-  if (!res.ok) throw new ApiError(res.status, data?.message ?? `Error ${res.status}`);
-  return data as T;
 }
 
 // ---------- Tiempo real ----------

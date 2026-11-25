@@ -1,6 +1,6 @@
 // Programación de recordatorios (RNF-17).
 // Local: la tabla reminders es la fuente de verdad y el worker la sondea.
-// AWS:   un horario único de EventBridge Scheduler por recordatorio, con reintentos y DLQ,
+// AWS:   un horario único de EventBridge Scheduler por recordatorio, con reintentos,
 //        que deja un mensaje en la cola de eventos de dominio.
 import { SchedulerClient, CreateScheduleCommand, DeleteScheduleCommand } from '@aws-sdk/client-scheduler';
 import type { Config } from '../config.js';

@@ -1,7 +1,7 @@
 // Autenticación.
 // Local: /auth/dev-login emite un JWT HS256 (simula el inicio de sesión con Google de Cognito).
-// AWS:   el JWT lo emite Cognito; se valida contra su JWKS. API Gateway ya lo valida antes,
-//        pero se vuelve a validar aquí para no depender de la configuración del autorizador.
+// AWS:   el JWT lo emite Cognito y cada Lambda lo valida aquí, contra su JWKS.
+//        API Gateway todavía no tiene un autorizador que lo revise antes.
 import { SignJWT, jwtVerify, createRemoteJWKSet, type JWTPayload } from 'jose';
 import type { Config } from '../config.js';
 import type { Db } from './db.js';

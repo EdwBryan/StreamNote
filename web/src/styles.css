@@ -457,6 +457,23 @@ table.members { width: 100%; border-collapse: collapse; }
   z-index: 20;
 }
 
+/* Aviso mientras Aurora despierta (App.tsx) */
+.aviso-despertando {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 5px solid var(--highlight);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(27, 42, 65, 0.15);
+  z-index: 30;
+}
+.aviso-despertando[hidden] { display: none; }
+
 /* ---------- Panel «Mis archivos» ---------- */
 .file-tree { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); }
 .file-tree-bar { display: grid; gap: 8px; padding: 12px 12px 10px; border-bottom: 1px solid var(--rule); }

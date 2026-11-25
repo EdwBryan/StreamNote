@@ -9,6 +9,7 @@ import { execute, matchRoute } from '../app/router.js';
 import { applyNoteWrite } from '../domains/notes.js';
 import { handleDomainEvent } from '../domains/notifications.js';
 import { processRecording } from '../domains/streams.js';
+import { eachRecord, type SqsEvent } from '../core/lote.js';
 
 // Tipos mínimos para no depender de @types/aws-lambda
 interface HttpEvent {
@@ -18,9 +19,6 @@ interface HttpEvent {
   body?: string;
   isBase64Encoded?: boolean;
   requestContext: { http: { method: string }; stage?: string };
-}
-interface SqsEvent {
-  Records: { messageId: string; body: string; eventSourceARN?: string }[];
 }
 
 // Se crean una vez por contenedor de Lambda y se reutilizan entre invocaciones
@@ -44,19 +42,6 @@ export async function http(event: HttpEvent) {
     body: raw ? JSON.parse(raw) : undefined,
   }, deps);
   return { statusCode: res.status, headers: { 'content-type': 'application/json' }, body: JSON.stringify(res.body) };
-}
-
-async function eachRecord(event: SqsEvent, fn: (body: any) => Promise<unknown>) {
-  const batchItemFailures: { itemIdentifier: string }[] = [];
-  for (const r of event.Records) {
-    try {
-      await fn(JSON.parse(r.body));
-    } catch (e) {
-      console.error(e);
-      batchItemFailures.push({ itemIdentifier: r.messageId });
-    }
-  }
-  return { batchItemFailures };
 }
 
 export const noteWrites = (event: SqsEvent) => eachRecord(event, (m) => applyNoteWrite(deps, m));
