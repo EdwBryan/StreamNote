@@ -11,6 +11,7 @@ permissions:
 jobs:
   plan:
     runs-on: ubuntu-latest
+    timeout-minutes: 15   # hoy tarda ~1 min
     steps:
       - uses: actions/checkout@v4
 
@@ -25,6 +26,11 @@ jobs:
           npm run typecheck
           npm run build:lambda
 
+      # Reintento mientras Aurora despierta y lotes de SQS (backend/test/)
+      - name: Pruebas del backend
+        working-directory: backend
+        run: npm test
+
       - name: Pruebas de la web
         working-directory: web
         run: |
@@ -36,8 +42,7 @@ jobs:
           terraform_version: "1.10.5"
 
       - name: Formato
-        run: terraform fmt -check -recursive infra/terraform
-        continue-on-error: true
+        run: terraform fmt -check -recursive infra
 
       - name: Validar
         working-directory: infra/terraform/envs/aws

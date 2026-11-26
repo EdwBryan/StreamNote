@@ -17,6 +17,7 @@ jobs:
   destroy:
     if: inputs.confirmar == 'destruir'
     runs-on: ubuntu-latest
+    timeout-minutes: 60   # tarda de 6 a 22 min (CloudFront tarda en borrarse)
     env:
       STAGE: dev
     environment: dev
@@ -55,3 +56,24 @@ jobs:
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
             -backend-config="key=lab09/${STAGE}/terraform.tfstate"
           terraform destroy -input=false -auto-approve -var-file="${STAGE}.tfvars"
+
+      # Que el destroy avise si dejó algo cobrando
+      - name: Verificar que no quedó nada
+        working-directory: infra/terraform/envs/aws
+        run: |
+          restantes=$(terraform state list)
+          if [ -n "$restantes" ]; then
+            echo "Quedaron recursos en el estado de Terraform:"
+            echo "$restantes"
+            exit 1
+          fi
+          echo "### Destroy de \`$STAGE\` completo: el estado quedó vacío" >> "$GITHUB_STEP_SUMMARY"
+
+          # Solo informan, no fallan: estas listas tardan en enterarse de lo que se borró
+          echo "Recursos que AWS todavía lista con la etiqueta proyecto=streamnote:"
+          aws resourcegroupstaggingapi get-resources \
+            --tag-filters Key=proyecto,Values=streamnote \
+            --query 'ResourceTagMappingList[].ResourceARN' --output text || true
+          echo "Grupos de logs de las Lambdas (Terraform no los borra):"
+          aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/streamnote-${STAGE}" \
+            --query 'logGroups[].logGroupName' --output text || true

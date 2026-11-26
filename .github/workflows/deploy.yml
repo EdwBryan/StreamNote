@@ -5,6 +5,12 @@ name: deploy
 on:
   push:
     branches: [development]
+    # Solo documentación o el bootstrap (que Bryan aplica a mano): no hay nada que desplegar
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "plans/**"
+      - "infra/bootstrap/**"
 
 permissions:
   id-token: write
@@ -13,6 +19,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 45   # creando dev desde cero tarda ~8 min
     env:
       STAGE: dev
     environment: dev

@@ -469,7 +469,7 @@ data "aws_iam_policy_document" "deploy_datos" {
 
 # Lo que protege el stack: WAF, alarmas y respaldos
 data "aws_iam_policy_document" "deploy_proteccion" {
-  #checkov:skip=CKV_AWS_356:DescribeAlarms y backup-storage:MountCapsule no aceptan ARN.
+  #checkov:skip=CKV_AWS_356:DescribeAlarms, backup-storage:MountCapsule y tag:GetResources no aceptan ARN.
   statement {
     sid = "Waf"
     actions = [
@@ -490,6 +490,12 @@ data "aws_iam_policy_document" "deploy_proteccion" {
     sid       = "AlarmasLeer"
     actions   = ["cloudwatch:DescribeAlarms"]
     resources = ["*"]
+  }
+  # Al final del destroy se listan los recursos con la etiqueta del proyecto (solo lectura)
+  statement {
+    sid       = "TagsLeer"
+    actions   = ["tag:GetResources"]
+    resources = ["*"] # la API de etiquetas no acepta ARN
   }
   statement {
     sid = "AvisosSns"
