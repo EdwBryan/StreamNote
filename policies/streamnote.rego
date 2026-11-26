@@ -39,6 +39,7 @@ deny contains msg if {
 	nombre := rc.change.after[campo]
 	is_string(nombre)
 	not startswith(nombre, "/aws/")
+	not startswith(nombre, "arn:") # un ARN apunta a otro recurso (p. ej. la Lambda de una cola), no es un nombre nuevo
 	nombre != "$default"
 	not startswith(nombre, prefijo)
 	msg := sprintf("%s se llama %s; debe empezar con %s", [rc.address, nombre, prefijo])
