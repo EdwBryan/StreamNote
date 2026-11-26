@@ -36,8 +36,7 @@ jobs:
           terraform_version: "1.10.5"
 
       - name: Formato
-        run: terraform fmt -check -recursive infra/terraform
-        continue-on-error: true
+        run: terraform fmt -check -recursive infra
 
       - name: Validar
         working-directory: infra/terraform/envs/aws
