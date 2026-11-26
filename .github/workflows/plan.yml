@@ -26,6 +26,11 @@ jobs:
           npm run typecheck
           npm run build:lambda
 
+      # Reintento mientras Aurora despierta y lotes de SQS (backend/test/)
+      - name: Pruebas del backend
+        working-directory: backend
+        run: npm test
+
       - name: Pruebas de la web
         working-directory: web
         run: |
