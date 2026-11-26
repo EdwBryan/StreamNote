@@ -11,6 +11,10 @@ terraform {
 
 provider "aws" {
   region = "us-east-1"
+  # Etiquetas de costo: el bootstrap es de todos los ambientes (rol del pipeline y bucket del estado)
+  default_tags {
+    tags = { proyecto = "streamnote", entorno = "compartido", servicio = "pipeline" }
+  }
 }
 
 data "aws_caller_identity" "me" {}
