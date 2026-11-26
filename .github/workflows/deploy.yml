@@ -19,6 +19,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 45   # creando dev desde cero tarda ~8 min
     env:
       STAGE: dev
     environment: dev
