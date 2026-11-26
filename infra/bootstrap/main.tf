@@ -190,6 +190,7 @@ data "aws_iam_policy_document" "deploy_app" {
       "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:ListVersionsByFunction",
       "lambda:GetFunctionCodeSigningConfig", "lambda:GetPolicy", "lambda:AddPermission", "lambda:RemovePermission",
       "lambda:TagResource", "lambda:UntagResource", "lambda:ListTags",
+      "lambda:PutFunctionConcurrency", "lambda:DeleteFunctionConcurrency", "lambda:GetFunctionConcurrency", # tope por Lambda
     ]
     resources = ["arn:aws:lambda:${local.region}:${local.account}:function:${local.prefix}-*"]
   }

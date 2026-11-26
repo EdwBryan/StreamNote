@@ -109,6 +109,18 @@ locals {
     streaming      = { timeout = 300, memory = 2048, permisos = ["db", "eventos", "cola_media", "recordatorios", "grabaciones"] }
   }
 
+  # Tope de ejecuciones a la vez de cada Lambda (de las 1 000 de la cuenta). Es un freno de gasto:
+  # si una entra en un bucle, no se come la cuenta entera, y la alarma de throttles avisa.
+  # Dos ambientes (dev y prod) reservan 620; AWS exige dejar al menos 100 sin reservar.
+  topes = {
+    identidad      = 50
+    comunidades    = 50
+    notas          = 100 # la más usada: abrir, guardar y compartir apuntes
+    tareas         = 50
+    notificaciones = 50
+    streaming      = 10 # cada una usa 2 GB y hasta 5 minutos con ffmpeg
+  }
+
   # Qué cola lee cada dominio
   colas = {
     note-writes   = "notas"
@@ -164,7 +176,6 @@ resource "aws_iam_role_policy" "app" {
 resource "aws_lambda_function" "this" {
   #checkov:skip=CKV_AWS_117:Las Lambdas van fuera de la VPC (diagrama, etiqueta 9): así no necesitan NAT.
   #checkov:skip=CKV_AWS_116:Ninguna se invoca en modo asíncrono: la API espera la respuesta y las colas ya tienen su DLQ.
-  #checkov:skip=CKV_AWS_115:La cuenta tiene 10 ejecuciones a la vez y AWS exige dejar 10 libres, así que no se puede reservar. Pendiente: pedir el aumento de cuota.
   #checkov:skip=CKV_AWS_173:Las variables se cifran con la llave de Lambda; la clave de Aurora no está aquí, está en Secrets Manager.
   #checkov:skip=CKV_AWS_272:Solo el pipeline puede subir código (rol por OIDC y rama protegida); firmar el código no está en el diagrama.
   #checkov:skip=CKV_AWS_50:Las trazas de X-Ray no están en el diagrama; los logs de cada Lambda van a CloudWatch.
@@ -183,6 +194,8 @@ resource "aws_lambda_function" "this" {
   environment {
     variables = merge(var.environment, each.key == "streaming" ? { PATH = "/opt/bin:/usr/local/bin:/usr/bin:/bin" } : {})
   }
+
+  reserved_concurrent_executions = local.topes[each.key] # ver local.topes
 }
 
 resource "aws_lambda_event_source_mapping" "queues" {
