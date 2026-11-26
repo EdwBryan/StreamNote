@@ -139,14 +139,18 @@ export interface Notification {
   read: boolean;
 }
 
+const NOTIFICATION_DAYS = 90; // la web muestra los últimos 50; nadie busca un aviso de hace 3 meses
+
 export class NotificationStore {
   private doc: DynamoDBDocumentClient;
   constructor(private cfg: Config) {
     this.doc = DynamoDBDocumentClient.from(new DynamoDBClient(base(cfg)), { marshallOptions: { removeUndefinedValues: true } });
   }
 
+  // expiresAt (segundos desde 1970) es el campo TTL de la tabla: DynamoDB borra el aviso a los 90 días
   async put(n: Notification) {
-    await this.doc.send(new PutCommand({ TableName: this.cfg.resources.notificationsTable, Item: n }));
+    const expiresAt = Math.floor(Date.parse(n.createdAt) / 1000) + NOTIFICATION_DAYS * 24 * 60 * 60;
+    await this.doc.send(new PutCommand({ TableName: this.cfg.resources.notificationsTable, Item: { ...n, expiresAt } }));
   }
 
   async latest(userId: string, limit = 50): Promise<Notification[]> {
