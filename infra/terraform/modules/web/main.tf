@@ -168,6 +168,24 @@ data "aws_iam_policy_document" "web" {
       values   = [aws_cloudfront_distribution.web.arn]
     }
   }
+
+  # Nadie entra sin HTTPS (Security Hub S3.5). CloudFront no se ve afectado: con
+  # redirect-to-https le pide a S3 siempre por HTTPS, igual que el visitante.
+  statement {
+    sid       = "SoloHttps"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.web.arn, "${aws_s3_bucket.web.arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
 }
 
 resource "aws_s3_bucket_policy" "web" {
