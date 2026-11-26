@@ -5,6 +5,12 @@ name: deploy
 on:
   push:
     branches: [development]
+    # Solo documentación o el bootstrap (que Bryan aplica a mano): no hay nada que desplegar
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "plans/**"
+      - "infra/bootstrap/**"
 
 permissions:
   id-token: write
