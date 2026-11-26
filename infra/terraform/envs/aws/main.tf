@@ -34,10 +34,89 @@ terraform {
   }
 }
 
+# Etiquetas de costo (FinOps, «informar»): todo recurso lleva proyecto, entorno y servicio.
+# Cada módulo recibe su propio proveedor con su «servicio», así los recursos nuevos la heredan
+# solos. Cost Explorer y los presupuestos separan el gasto con estas etiquetas.
+locals {
+  etiquetas = { proyecto = "streamnote", entorno = var.stage }
+}
+
 provider "aws" {
   region = "us-east-1"
   default_tags {
-    tags = { proyecto = "streamnote", entorno = var.stage }
+    tags = merge(local.etiquetas, { servicio = "plataforma" }) # lo que está en este archivo y no en un módulo
+  }
+}
+
+provider "aws" {
+  alias  = "red"
+  region = "us-east-1"
+  default_tags {
+    tags = merge(local.etiquetas, { servicio = "red" })
+  }
+}
+
+provider "aws" {
+  alias  = "web"
+  region = "us-east-1"
+  default_tags {
+    tags = merge(local.etiquetas, { servicio = "web" })
+  }
+}
+
+provider "aws" {
+  alias  = "mensajeria"
+  region = "us-east-1"
+  default_tags {
+    tags = merge(local.etiquetas, { servicio = "mensajeria" })
+  }
+}
+
+provider "aws" {
+  alias  = "almacenamiento"
+  region = "us-east-1"
+  default_tags {
+    tags = merge(local.etiquetas, { servicio = "almacenamiento" })
+  }
+}
+
+provider "aws" {
+  alias  = "notificaciones"
+  region = "us-east-1"
+  default_tags {
+    tags = merge(local.etiquetas, { servicio = "notificaciones" })
+  }
+}
+
+provider "aws" {
+  alias  = "base_de_datos"
+  region = "us-east-1"
+  default_tags {
+    tags = merge(local.etiquetas, { servicio = "base-de-datos" })
+  }
+}
+
+provider "aws" {
+  alias  = "respaldos"
+  region = "us-east-1"
+  default_tags {
+    tags = merge(local.etiquetas, { servicio = "respaldos" })
+  }
+}
+
+provider "aws" {
+  alias  = "api"
+  region = "us-east-1"
+  default_tags {
+    tags = merge(local.etiquetas, { servicio = "api" })
+  }
+}
+
+provider "aws" {
+  alias  = "monitoreo"
+  region = "us-east-1"
+  default_tags {
+    tags = merge(local.etiquetas, { servicio = "monitoreo" })
   }
 }
 
@@ -95,34 +174,40 @@ locals {
 }
 
 module "network" {
-  source = "../../modules/network"
-  prefix = local.prefix
+  source    = "../../modules/network"
+  providers = { aws = aws.red }
+  prefix    = local.prefix
 }
 
 module "web" {
   source        = "../../modules/web"
+  providers     = { aws = aws.web }
   prefix        = local.bucket_prefix
   force_destroy = !var.is_prod
 }
 
 module "messaging" {
-  source = "../../modules/messaging"
-  prefix = local.prefix
+  source    = "../../modules/messaging"
+  providers = { aws = aws.mensajeria }
+  prefix    = local.prefix
 }
 
 module "storage" {
   source        = "../../modules/storage"
+  providers     = { aws = aws.almacenamiento }
   prefix        = local.bucket_prefix
   force_destroy = !var.is_prod
 }
 
 module "notifications" {
-  source = "../../modules/notifications"
-  prefix = local.prefix
+  source    = "../../modules/notifications"
+  providers = { aws = aws.notificaciones }
+  prefix    = local.prefix
 }
 
 module "database" {
   source              = "../../modules/database"
+  providers           = { aws = aws.base_de_datos }
   prefix              = local.prefix
   vpc_id              = module.network.vpc_id
   subnet_ids          = module.network.private_subnet_ids
@@ -132,6 +217,7 @@ module "database" {
 
 module "backup" {
   source         = "../../modules/backup"
+  providers      = { aws = aws.respaldos }
   prefix         = local.prefix
   resource_arns  = [module.database.cluster_arn, module.notifications.table_arn]
   force_destroy  = !var.is_prod
@@ -148,6 +234,7 @@ resource "random_password" "jwt" {
 # ---------- Cognito (inicio de sesión; el proveedor de Google se agrega con sus credenciales) ----------
 resource "aws_cognito_user_pool" "this" {
   name                     = "${local.prefix}-users"
+  tags                     = { servicio = "identidad" }
   auto_verified_attributes = ["email"]
   username_attributes      = ["email"]
 }
@@ -191,6 +278,7 @@ data "aws_iam_policy_document" "scheduler_assume" {
 
 resource "aws_iam_role" "scheduler" {
   name               = "${local.prefix}-scheduler"
+  tags               = { servicio = "notificaciones" } # los recordatorios terminan como avisos
   assume_role_policy = data.aws_iam_policy_document.scheduler_assume.json
 }
 
@@ -204,6 +292,7 @@ resource "aws_iam_role_policy" "scheduler" {
 
 module "api" {
   source             = "../../modules/api"
+  providers          = { aws = aws.api }
   prefix             = local.prefix
   bundle_dir         = "${path.root}/../../../../backend/dist/lambda"
   queue_arns         = module.messaging.queue_arns
@@ -243,6 +332,7 @@ module "api" {
 
 module "monitoring" {
   source      = "../../modules/monitoring"
+  providers   = { aws = aws.monitoreo }
   prefix      = local.prefix
   api_id      = module.api.api_id
   alert_email = var.alert_email
