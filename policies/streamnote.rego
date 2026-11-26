@@ -16,18 +16,20 @@ cambios contains rc if {
 	accion in {"create", "update"}
 }
 
-# 1) Todo va en us-east-1, la única región del diagrama
+# 1) Todo va en us-east-1, la única región del diagrama (también los proveedores de cada servicio)
 deny contains msg if {
-	r := input.configuration.provider_config.aws.expressions.region.constant_value
+	some nombre, p in input.configuration.provider_config
+	p.name == "aws"
+	r := p.expressions.region.constant_value
 	r != region
-	msg := sprintf("El provider apunta a %s; el proyecto va solo en %s", [r, region])
+	msg := sprintf("El proveedor %s apunta a %s; el proyecto va solo en %s", [nombre, r, region])
 }
 
-# 2) Cada recurso lleva las etiquetas proyecto y entorno, para saber de quién es cada costo
+# 2) Cada recurso lleva las etiquetas proyecto, entorno y servicio, para saber de quién es cada costo
 deny contains msg if {
 	some rc in cambios
 	etiquetas := rc.change.after.tags_all
-	some e in ["proyecto", "entorno"]
+	some e in ["proyecto", "entorno", "servicio"]
 	not etiquetas[e]
 	msg := sprintf("%s no tiene la etiqueta %s", [rc.address, e])
 }
