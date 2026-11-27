@@ -14,6 +14,11 @@ variable "dlq_names" {
   type        = map(string)
 }
 
+variable "function_names" {
+  description = "Nombre de cada Lambda, por dominio"
+  type        = map(string)
+}
+
 variable "alert_email" {
   description = "Correo del equipo. Viene del secreto ALERT_EMAIL de GitHub; vacío = sin suscripción"
   type        = string
@@ -82,6 +87,40 @@ resource "aws_cloudwatch_metric_alarm" "dlq" {
   metric_name         = "ApproximateNumberOfMessagesVisible"
   dimensions          = { QueueName = each.value }
   statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alertas.arn]
+}
+
+# RNF-10: una Lambda que falla (excepción o tiempo agotado) avisa al equipo.
+resource "aws_cloudwatch_metric_alarm" "lambda_errores" {
+  for_each            = var.function_names
+  alarm_name          = "${var.prefix}-lambda-${each.key}-errores"
+  alarm_description   = "La Lambda ${each.key} falló en los últimos 5 minutos"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  dimensions          = { FunctionName = each.value }
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alertas.arn]
+}
+
+# RNF-09: si ya corren todas las Lambdas que la cuenta permite a la vez, las nuevas se rechazan (throttle).
+resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
+  for_each            = var.function_names
+  alarm_name          = "${var.prefix}-lambda-${each.key}-throttles"
+  alarm_description   = "La Lambda ${each.key} rechazó solicitudes por falta de capacidad"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Throttles"
+  dimensions          = { FunctionName = each.value }
+  statistic           = "Sum"
   period              = 300
   evaluation_periods  = 1
   comparison_operator = "GreaterThanOrEqualToThreshold"

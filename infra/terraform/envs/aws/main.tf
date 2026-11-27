@@ -248,11 +248,12 @@ module "api" {
 }
 
 module "monitoring" {
-  source      = "../../modules/monitoring"
-  prefix      = local.prefix
-  api_id      = module.api.api_id
-  dlq_names   = module.messaging.dlq_names
-  alert_email = var.alert_email
+  source         = "../../modules/monitoring"
+  prefix         = local.prefix
+  api_id         = module.api.api_id
+  dlq_names      = module.messaging.dlq_names
+  function_names = module.api.function_names
+  alert_email    = var.alert_email
 }
 
 # Los grupos de logs de las Lambdas ya existen en dev: Lambda los creó sola la primera vez que corrió.
