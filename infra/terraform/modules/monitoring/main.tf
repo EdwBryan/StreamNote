@@ -1,3 +1,4 @@
+# Alarmas que avisan al equipo por correo (SNS).
 # RNF-12: si más del 2 % de las solicitudes a la API fallan durante 5 minutos, llega un correo al equipo.
 
 variable "prefix" {
@@ -6,6 +7,11 @@ variable "prefix" {
 
 variable "api_id" {
   type = string
+}
+
+variable "dlq_names" {
+  description = "Nombre de cada DLQ, por cola"
+  type        = map(string)
 }
 
 variable "alert_email" {
@@ -64,4 +70,22 @@ resource "aws_cloudwatch_metric_alarm" "errores_api" {
       dimensions  = { ApiId = var.api_id }
     }
   }
+}
+
+# RNF-05 y RNF-10: un mensaje en una DLQ es una operación que falló todos sus reintentos.
+# Queda guardado 14 días, pero alguien tiene que revisarlo.
+resource "aws_cloudwatch_metric_alarm" "dlq" {
+  for_each            = var.dlq_names
+  alarm_name          = "${var.prefix}-dlq-${each.key}"
+  alarm_description   = "Hay mensajes en la DLQ de ${each.key}: fallaron todos sus reintentos"
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  dimensions          = { QueueName = each.value }
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alertas.arn]
 }

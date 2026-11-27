@@ -251,6 +251,7 @@ module "monitoring" {
   source      = "../../modules/monitoring"
   prefix      = local.prefix
   api_id      = module.api.api_id
+  dlq_names   = module.messaging.dlq_names
   alert_email = var.alert_email
 }
 
