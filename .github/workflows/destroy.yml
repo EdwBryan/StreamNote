@@ -74,6 +74,6 @@ jobs:
           aws resourcegroupstaggingapi get-resources \
             --tag-filters Key=proyecto,Values=streamnote \
             --query 'ResourceTagMappingList[].ResourceARN' --output text || true
-          echo "Grupos de logs de las Lambdas (Terraform no los borra):"
+          echo "Grupos de logs de las Lambdas que quedaron (debería salir vacío):"
           aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/streamnote-${STAGE}" \
             --query 'logGroups[].logGroupName' --output text || true

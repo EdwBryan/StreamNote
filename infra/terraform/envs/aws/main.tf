@@ -74,6 +74,12 @@ variable "backup_retention_days" {
   default     = 730
 }
 
+variable "importar_logs_lambda" {
+  description = "Solo para el primer deploy con los logs en Terraform: trae al estado los grupos que Lambda ya creó"
+  type        = bool
+  default     = false
+}
+
 variable "alert_email" {
   description = "Correo que recibe las alarmas (secreto ALERT_EMAIL de GitHub)"
   type        = string
@@ -242,10 +248,20 @@ module "api" {
 }
 
 module "monitoring" {
-  source      = "../../modules/monitoring"
-  prefix      = local.prefix
-  api_id      = module.api.api_id
-  alert_email = var.alert_email
+  source         = "../../modules/monitoring"
+  prefix         = local.prefix
+  api_id         = module.api.api_id
+  dlq_names      = module.messaging.dlq_names
+  function_names = module.api.function_names
+  alert_email    = var.alert_email
+}
+
+# Los grupos de logs de las Lambdas ya existen en dev: Lambda los creó sola la primera vez que corrió.
+# Este bloque los trae al estado de Terraform, en vez de intentar crearlos otra vez (y fallar).
+import {
+  for_each = var.importar_logs_lambda ? toset(["identidad", "comunidades", "notas", "tareas", "notificaciones", "streaming"]) : toset([])
+  to       = module.api.aws_cloudwatch_log_group.lambda[each.key]
+  id       = "/aws/lambda/${local.prefix}-${each.key}"
 }
 
 # ---------- Salidas que usa el pipeline ----------

@@ -83,3 +83,8 @@ output "event_bus_name" {
 output "event_bus_arn" {
   value = aws_cloudwatch_event_bus.this.arn
 }
+
+# Nombres de las DLQ, para sus alarmas (módulo monitoring)
+output "dlq_names" {
+  value = { for k, q in aws_sqs_queue.dlq : k => q.name }
+}
