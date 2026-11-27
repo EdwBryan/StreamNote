@@ -589,6 +589,105 @@ resource "aws_iam_role_policy_attachment" "deploy" {
   policy_arn = each.value.arn
 }
 
+# 5) Presupuestos: avisan por correo antes de que el gasto se pase de lo planeado.
+#    Se crearon a mano en la consola; los bloques import los traen al estado y, como cambia
+#    el nombre, Terraform los reemplaza por unos iguales con el nombre del proyecto.
+variable "correos_alertas" {
+  description = "Correos del equipo que reciben los avisos. Se pasan con TF_VAR_correos_alertas='[\"a@x.com\",\"b@y.com\"]': no van en el repo"
+  type        = list(string)
+
+  validation {
+    condition     = length(var.correos_alertas) >= 1 && length(var.correos_alertas) <= 10 # AWS admite hasta 10 por aviso
+    error_message = "Pon entre 1 y 10 correos."
+  }
+}
+
+import {
+  to = aws_budgets_budget.mensual
+  id = "${local.account}:My Monthly Cost Budget"
+}
+
+import {
+  to = aws_budgets_budget.diario
+  id = "${local.account}:PresupuestoS9StreamNote"
+}
+
+# 10 USD al mes para toda la cuenta: avisa al 85 % y al 100 % de lo gastado, y si el pronóstico pasa el 100 %
+resource "aws_budgets_budget" "mensual" {
+  name             = "streamnote-mensual"
+  budget_type      = "COST"
+  limit_amount     = "10.0"
+  limit_unit       = "USD"
+  time_unit        = "MONTHLY"
+  metrics          = ["UnblendedCost"]
+  billing_view_arn = "arn:aws:billing::${local.account}:billingview/primary"
+  tags             = { servicio = "costos" }
+
+  # Los créditos y reembolsos no cuentan: el presupuesto mide lo que se consume
+  filter_expression {
+    not {
+      dimensions {
+        key    = "RECORD_TYPE"
+        values = ["Credit", "Refund"]
+      }
+    }
+  }
+
+  # Lo gastado de verdad pasa el 85 % (hay tiempo de apagar algo) y el 100 %
+  dynamic "notification" {
+    for_each = [85, 100]
+    content {
+      notification_type          = "ACTUAL"
+      comparison_operator        = "GREATER_THAN"
+      threshold                  = notification.value
+      threshold_type             = "PERCENTAGE"
+      subscriber_email_addresses = var.correos_alertas
+    }
+  }
+
+  # AWS proyecta el gasto del mes y avisa antes de que pase
+  notification {
+    notification_type          = "FORECASTED"
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    subscriber_email_addresses = var.correos_alertas
+  }
+}
+
+# 1 USD al día: detecta un día raro (algo encendido de más) sin esperar a fin de mes.
+# Un presupuesto diario no admite pronóstico, solo lo gastado.
+resource "aws_budgets_budget" "diario" {
+  name             = "streamnote-diario"
+  budget_type      = "COST"
+  limit_amount     = "1.0"
+  limit_unit       = "USD"
+  time_unit        = "DAILY"
+  metrics          = ["UnblendedCost"]
+  billing_view_arn = "arn:aws:billing::${local.account}:billingview/primary"
+  tags             = { servicio = "costos" }
+
+  filter_expression {
+    not {
+      dimensions {
+        key    = "RECORD_TYPE"
+        values = ["Credit", "Refund"]
+      }
+    }
+  }
+
+  dynamic "notification" {
+    for_each = [50, 75]
+    content {
+      notification_type          = "ACTUAL"
+      comparison_operator        = "GREATER_THAN"
+      threshold                  = notification.value
+      threshold_type             = "PERCENTAGE"
+      subscriber_email_addresses = var.correos_alertas
+    }
+  }
+}
+
 output "role_arn" {
   value = aws_iam_role.github_deploy.arn
 }
