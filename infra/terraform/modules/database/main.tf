@@ -111,6 +111,7 @@ resource "aws_rds_cluster_instance" "this" {
   engine_version             = aws_rds_cluster.this.engine_version
   promotion_tier             = each.value
   auto_minor_version_upgrade = true
+  copy_tags_to_snapshot      = true # como el clúster: las copias heredan proyecto, entorno y servicio (RDS.17)
 }
 
 output "cluster_arn" {

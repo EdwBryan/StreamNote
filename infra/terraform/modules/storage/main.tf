@@ -102,6 +102,30 @@ resource "aws_s3_bucket_lifecycle_configuration" "recordings" {
   }
 }
 
+# Nadie entra sin HTTPS (Security Hub S3.5): ni la API, ni las URLs firmadas, ni una persona con la consola
+data "aws_iam_policy_document" "recordings" {
+  statement {
+    sid       = "SoloHttps"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.recordings.arn, "${aws_s3_bucket.recordings.arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "recordings" {
+  bucket = aws_s3_bucket.recordings.id
+  policy = data.aws_iam_policy_document.recordings.json
+}
+
 output "bucket_name" {
   value = aws_s3_bucket.recordings.bucket
 }

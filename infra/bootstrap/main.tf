@@ -11,6 +11,10 @@ terraform {
 
 provider "aws" {
   region = "us-east-1"
+  # Etiquetas de costo: el bootstrap es de todos los ambientes (rol del pipeline y bucket del estado)
+  default_tags {
+    tags = { proyecto = "streamnote", entorno = "compartido", servicio = "pipeline" }
+  }
 }
 
 data "aws_caller_identity" "me" {}
@@ -186,6 +190,7 @@ data "aws_iam_policy_document" "deploy_app" {
       "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:ListVersionsByFunction",
       "lambda:GetFunctionCodeSigningConfig", "lambda:GetPolicy", "lambda:AddPermission", "lambda:RemovePermission",
       "lambda:TagResource", "lambda:UntagResource", "lambda:ListTags",
+      "lambda:PutFunctionConcurrency", "lambda:DeleteFunctionConcurrency", "lambda:GetFunctionConcurrency", # tope por Lambda
     ]
     resources = ["arn:aws:lambda:${local.region}:${local.account}:function:${local.prefix}-*"]
   }
@@ -582,6 +587,94 @@ resource "aws_iam_role_policy_attachment" "deploy" {
   for_each   = aws_iam_policy.deploy
   role       = aws_iam_role.github_deploy.name
   policy_arn = each.value.arn
+}
+
+# 5) Presupuestos: avisan por correo antes de que el gasto se pase de lo planeado.
+#    (Antes estaban hechos a mano en la consola; se importaron una vez y se reemplazaron por estos.)
+variable "correos_alertas" {
+  description = "Correos del equipo que reciben los avisos. Se pasan con TF_VAR_correos_alertas='[\"a@x.com\",\"b@y.com\"]': no van en el repo"
+  type        = list(string)
+
+  validation {
+    condition     = length(var.correos_alertas) >= 1 && length(var.correos_alertas) <= 10 # AWS admite hasta 10 por aviso
+    error_message = "Pon entre 1 y 10 correos."
+  }
+}
+
+# 10 USD al mes para toda la cuenta: avisa al 85 % y al 100 % de lo gastado, y si el pronóstico pasa el 100 %
+resource "aws_budgets_budget" "mensual" {
+  name             = "streamnote-mensual"
+  budget_type      = "COST"
+  limit_amount     = "10.0"
+  limit_unit       = "USD"
+  time_unit        = "MONTHLY"
+  metrics          = ["UnblendedCost"]
+  billing_view_arn = "arn:aws:billing::${local.account}:billingview/primary"
+  tags             = { servicio = "costos" }
+
+  # Los créditos y reembolsos no cuentan: el presupuesto mide lo que se consume
+  filter_expression {
+    not {
+      dimensions {
+        key    = "RECORD_TYPE"
+        values = ["Credit", "Refund"]
+      }
+    }
+  }
+
+  # Lo gastado de verdad pasa el 85 % (hay tiempo de apagar algo) y el 100 %
+  dynamic "notification" {
+    for_each = [85, 100]
+    content {
+      notification_type          = "ACTUAL"
+      comparison_operator        = "GREATER_THAN"
+      threshold                  = notification.value
+      threshold_type             = "PERCENTAGE"
+      subscriber_email_addresses = var.correos_alertas
+    }
+  }
+
+  # AWS proyecta el gasto del mes y avisa antes de que pase
+  notification {
+    notification_type          = "FORECASTED"
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    subscriber_email_addresses = var.correos_alertas
+  }
+}
+
+# 1 USD al día: detecta un día raro (algo encendido de más) sin esperar a fin de mes.
+# Un presupuesto diario no admite pronóstico, solo lo gastado.
+resource "aws_budgets_budget" "diario" {
+  name             = "streamnote-diario"
+  budget_type      = "COST"
+  limit_amount     = "1.0"
+  limit_unit       = "USD"
+  time_unit        = "DAILY"
+  metrics          = ["UnblendedCost"]
+  billing_view_arn = "arn:aws:billing::${local.account}:billingview/primary"
+  tags             = { servicio = "costos" }
+
+  filter_expression {
+    not {
+      dimensions {
+        key    = "RECORD_TYPE"
+        values = ["Credit", "Refund"]
+      }
+    }
+  }
+
+  dynamic "notification" {
+    for_each = [50, 75]
+    content {
+      notification_type          = "ACTUAL"
+      comparison_operator        = "GREATER_THAN"
+      threshold                  = notification.value
+      threshold_type             = "PERCENTAGE"
+      subscriber_email_addresses = var.correos_alertas
+    }
+  }
 }
 
 output "role_arn" {

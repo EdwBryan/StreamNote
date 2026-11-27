@@ -25,6 +25,12 @@ resource "aws_dynamodb_table" "notifications" {
   point_in_time_recovery {
     enabled = true
   }
+
+  # Un aviso de más de 90 días se borra solo, sin costo de escritura (el backend pone expiresAt al guardarlo)
+  ttl {
+    attribute_name = "expiresAt"
+    enabled        = true
+  }
 }
 
 output "table_name" {
