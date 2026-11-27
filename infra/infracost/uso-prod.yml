@@ -81,7 +81,7 @@ resource_usage:
   # 7 000 usuarios × 20 visitas al mes; el navegador guarda la app y baja ~0,4 MB por visita
   module.web.aws_cloudfront_distribution.web:
     monthly_data_transfer_to_internet_gb:
-      south_america: 60 # el WAF solo deja entrar desde Perú
+      south_america: 60 # CloudFront solo deja entrar desde Perú
     monthly_https_requests:
       south_america: 2100000
   module.web.aws_wafv2_web_acl.web:

@@ -41,7 +41,7 @@ resource_usage:
 
   module.web.aws_cloudfront_distribution.web:
     monthly_data_transfer_to_internet_gb:
-      south_america: 1 # el WAF solo deja entrar desde Perú
+      south_america: 1 # CloudFront solo deja entrar desde Perú
     monthly_https_requests:
       south_america: 20000
   module.web.aws_wafv2_web_acl.web:
