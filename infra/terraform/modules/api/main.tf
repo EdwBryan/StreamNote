@@ -273,3 +273,8 @@ output "api_url" {
 output "api_id" {
   value = aws_apigatewayv2_api.http.id
 }
+
+# Nombre de cada Lambda, para sus alarmas (módulo monitoring)
+output "function_names" {
+  value = { for k, f in aws_lambda_function.this : k => f.function_name }
+}
