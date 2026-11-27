@@ -1,0 +1,122 @@
+# Uso estimado de producción para Infracost, sacado de los RNF del documento:
+#   7 000 usuarios registrados, pico de 1 400 a la vez en apuntes y 300 en transmisiones,
+#   uso de 7:00 a 22:30 (15,5 h por día) y unas 20 horas de clase transmitidas por semana.
+#
+# Supuestos (son estimaciones; se revisan con las métricas reales cuando prod exista):
+#   - En promedio hay conectados el 30 % del pico: 420 personas.
+#   - 420 × 15,5 h × 30 días ≈ 195 000 horas de uso al mes.
+#   - Cada persona conectada hace 1 pedido por minuto (abrir, guardar, avisos) → ≈ 12 M pedidos a la API.
+#   - 20 h de clase por semana ≈ 87 h al mes; a 3,5 Mbps (1080p) son ≈ 1,5 GB por hora → ≈ 130 GB al mes.
+#   - Se conserva el 30 % de las grabaciones; el resto se borra a los 3 días.
+version: 0.1
+
+resource_usage:
+  # ---------- API ----------
+  module.api.aws_apigatewayv2_api.http:
+    monthly_requests: 12000000
+
+  # Reparto de los 12 M pedidos entre las Lambdas (más lo que leen de las colas)
+  module.api.aws_lambda_function.this["notas"]: # 50 % de la API + guardar lo que llega a la cola
+    monthly_requests: 7000000
+    request_duration_ms: 150
+  module.api.aws_lambda_function.this["comunidades"]: # 15 %
+    monthly_requests: 1800000
+    request_duration_ms: 120
+  module.api.aws_lambda_function.this["tareas"]: # 15 %
+    monthly_requests: 1800000
+    request_duration_ms: 120
+  module.api.aws_lambda_function.this["identidad"]: # 10 %
+    monthly_requests: 1200000
+    request_duration_ms: 100
+  module.api.aws_lambda_function.this["notificaciones"]: # 10 % + los eventos de la cola
+    monthly_requests: 2200000
+    request_duration_ms: 150
+  # ~50 000 pedidos de 200 ms (iniciar, listar clases) y ~175 grabaciones de 5 min con ffmpeg
+  module.api.aws_lambda_function.this["streaming"]:
+    monthly_requests: 50000
+    request_duration_ms: 1250
+
+  # ---------- Base de datos ----------
+  # Aurora se pausa de noche (22:30 + 1 h → 7:00): ~225 h a 0 ACU y ~505 h activas a ~2 ACU
+  # → ≈ 1,3 ACU por hora en promedio. El lector sigue al escritor (misma capacidad).
+  # Infracost solo acepta enteros aquí: con 1 se queda corto en ~0,3 ACU por instancia
+  # (≈ 26 USD al mes cada una), así que el costo real de Aurora es ~50 USD más que la estimación.
+  module.database.aws_rds_cluster_instance.this["writer"]:
+    capacity_units_per_hr: 1
+  module.database.aws_rds_cluster_instance.this["reader"]:
+    capacity_units_per_hr: 1
+  module.database.aws_rds_cluster.this:
+    storage_gb: 10 # 7 000 usuarios × ~50 apuntes de 20 KB ≈ 7 GB, más comunidades y tareas
+    write_requests_per_sec: 5
+    read_requests_per_sec: 15
+    backup_snapshot_size_gb: 0 # las copias automáticas hasta el tamaño de la base no se cobran
+
+  # 7 000 usuarios × 30 avisos al mes, más marcarlos como leídos; la lista se pide 2 veces por hora
+  module.notifications.aws_dynamodb_table.notifications:
+    monthly_write_request_units: 310000
+    monthly_read_request_units: 800000
+    storage_gb: 0.2 # 90 días de avisos (el TTL borra el resto)
+    pitr_backup_storage_gb: 0.2
+
+  # Copias diarias guardadas 2 años (RNF-02). Promedio del primer año:
+  # Aurora es incremental (10 GB + cambios); DynamoDB copia la tabla entera cada día.
+  module.backup.aws_backup_vault.this:
+    monthly_aurora_snapshot_gb: 45
+    monthly_dynamodb_backup_gb: 36
+
+  # ---------- Mensajería ----------
+  # Cada mensaje son 3 pedidos (enviar, recibir, borrar) + ~650 000 de consultas con la cola vacía
+  module.messaging.aws_sqs_queue.this["note-writes"]: # ~2,4 M apuntes guardados
+    monthly_requests: 8000000
+  module.messaging.aws_sqs_queue.this["domain-events"]: # ~2 M eventos
+    monthly_requests: 6600000
+  module.messaging.aws_sqs_queue.this["media-jobs"]:
+    monthly_requests: 650000
+  module.messaging.aws_sqs_queue.dlq[*]:
+    monthly_requests: 0
+  module.messaging.aws_cloudwatch_event_bus.this:
+    monthly_custom_events: 2000000
+
+  # ---------- Web ----------
+  # 7 000 usuarios × 20 visitas al mes; el navegador guarda la app y baja ~0,4 MB por visita
+  module.web.aws_cloudfront_distribution.web:
+    monthly_data_transfer_to_internet_gb:
+      south_america: 60 # el WAF solo deja entrar desde Perú
+    monthly_https_requests:
+      south_america: 2100000
+  module.web.aws_wafv2_web_acl.web:
+    monthly_requests: 2100000
+  module.web.aws_s3_bucket.web:
+    standard:
+      storage_gb: 0.05
+      monthly_tier_1_requests: 1000
+      monthly_tier_2_requests: 50000
+
+  # ---------- Grabaciones ----------
+  # Standard: las provisionales de 3 días (~13 GB) + las conservadas del último mes (~39 GB).
+  # De 30 a 180 días pasan a Glacier Instant Retrieval (~195 GB): Infracost no tiene campo
+  # para esa clase, así que no la estima (son ~0,8 USD al mes).
+  # Después de 180 días, Deep Archive: promedio del primer año ~60 GB.
+  module.storage.aws_s3_bucket.recordings:
+    standard:
+      storage_gb: 50
+      monthly_tier_1_requests: 50000 # partes que sube ffmpeg y cambios de etiqueta
+      monthly_tier_2_requests: 100000 # 7 000 usuarios × ~10 descargas con URL firmada, más lo que lee ffmpeg
+    glacier_deep_archive:
+      storage_gb: 60
+      monthly_lifecycle_transition_requests: 200
+
+  # ---------- Logs ----------
+  module.api.aws_cloudwatch_log_group.api: # ~0,4 KB por pedido, guardados 365 días
+    monthly_data_ingested_gb: 5
+    storage_gb: 10
+  module.database.aws_cloudwatch_log_group.postgresql:
+    monthly_data_ingested_gb: 2
+    storage_gb: 5
+
+  module.monitoring.aws_sns_topic.alertas:
+    monthly_requests: 100
+    email_subscriptions: 1
+
+# Cognito no aparece: Infracost no toma un campo de usuarios activos para él, y los 7 000
+# usuarios entran en los 10 000 activos al mes gratis del plan Essentials.

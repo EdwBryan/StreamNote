@@ -1,0 +1,75 @@
+# Uso estimado de dev (y qa) para Infracost: el equipo de 3 probando.
+# Supuesto base: 3 personas × 2 h por día × 22 días hábiles = 132 horas de uso al mes,
+# con 1 pedido por minuto → unos 8 000 pedidos a la API al mes.
+version: 0.1
+
+resource_type_default_usage:
+  # Cada una de las 6 Lambdas: ~2 000 pedidos; en dev casi todos son arranques en frío
+  aws_lambda_function:
+    monthly_requests: 2000
+    request_duration_ms: 300
+
+resource_usage:
+  module.api.aws_apigatewayv2_api.http:
+    monthly_requests: 10000
+
+  # Aurora se pausa tras 1 h sin uso: (2 h de pruebas + 1 h hasta pausarse) × 22 días = 66 h
+  # a 0,5 ACU = 33 ACU-hora al mes ≈ 4 USD. Son 0,05 ACU por hora en promedio, pero Infracost
+  # solo acepta enteros aquí: con 0 no lo estima, y con 1 serían 88 USD (lo que costaría sin pausa).
+  module.database.aws_rds_cluster_instance.this["writer"]:
+    capacity_units_per_hr: 0
+  module.database.aws_rds_cluster.this:
+    storage_gb: 1
+    write_requests_per_sec: 0.1
+    read_requests_per_sec: 0.2
+    backup_snapshot_size_gb: 0 # las copias automáticas hasta el tamaño de la base no se cobran
+
+  module.notifications.aws_dynamodb_table.notifications:
+    monthly_write_request_units: 1000
+    monthly_read_request_units: 5000
+    storage_gb: 0.01
+    pitr_backup_storage_gb: 0.01
+
+  # La Lambda consulta cada cola aunque esté vacía (long polling): unos 650 000 pedidos
+  # al mes por cola. El primer millón de pedidos de SQS al mes es gratis.
+  module.messaging.aws_sqs_queue.this[*]:
+    monthly_requests: 650000
+  module.messaging.aws_sqs_queue.dlq[*]:
+    monthly_requests: 0
+  module.messaging.aws_cloudwatch_event_bus.this:
+    monthly_custom_events: 2000
+
+  module.web.aws_cloudfront_distribution.web:
+    monthly_data_transfer_to_internet_gb:
+      south_america: 1 # el WAF solo deja entrar desde Perú
+    monthly_https_requests:
+      south_america: 20000
+  module.web.aws_wafv2_web_acl.web:
+    monthly_requests: 20000
+  module.web.aws_s3_bucket.web:
+    standard:
+      storage_gb: 0.01
+      monthly_tier_1_requests: 500 # subidas en cada deploy
+      monthly_tier_2_requests: 2000 # lo que CloudFront no tiene en caché
+
+  module.storage.aws_s3_bucket.recordings:
+    standard:
+      storage_gb: 2 # unas pocas grabaciones de prueba; las provisionales se borran a los 3 días
+      monthly_tier_1_requests: 2000
+      monthly_tier_2_requests: 5000
+
+  module.api.aws_cloudwatch_log_group.api:
+    monthly_data_ingested_gb: 0.01
+    storage_gb: 0.1
+  module.database.aws_cloudwatch_log_group.postgresql:
+    monthly_data_ingested_gb: 0.05
+    storage_gb: 0.5
+
+  # Copias diarias guardadas 7 días en dev
+  module.backup.aws_backup_vault.this:
+    monthly_aurora_snapshot_gb: 1
+    monthly_dynamodb_backup_gb: 0.07
+
+  module.monitoring.aws_sns_topic.alertas:
+    monthly_requests: 10
+    email_subscriptions: 1

@@ -1,0 +1,30 @@
+# Qué estima Infracost en cada PR (la app de GitHub lee este archivo solo).
+# Cada ambiente usa su propio archivo de uso: sin uso, Infracost no puede estimar
+# lo que se cobra por pedido (Lambda, API Gateway, SQS, S3, Aurora…).
+# envs/local no aparece a propósito: corre en moto (sin costo) y no lleva etiquetas.
+version: "0.3"
+
+projects:
+  - path: infra/terraform/envs/aws
+    name: infra-terraform-envs-aws-dev
+    terraform:
+      var_files:
+        - dev.tfvars
+    usage_file: infra/infracost/uso-dev.yml
+
+  - path: infra/terraform/envs/aws
+    name: infra-terraform-envs-aws-qa
+    terraform:
+      var_files:
+        - qa.tfvars
+    usage_file: infra/infracost/uso-dev.yml # qa se usa como dev: solo el equipo probando
+
+  - path: infra/terraform/envs/aws
+    name: infra-terraform-envs-aws-prod
+    terraform:
+      var_files:
+        - prod.tfvars
+    usage_file: infra/infracost/uso-prod.yml
+
+  - path: infra/bootstrap
+    name: infra-bootstrap
