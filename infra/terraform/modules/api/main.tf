@@ -161,6 +161,15 @@ resource "aws_iam_role_policy" "app" {
   })
 }
 
+# Logs de cada Lambda. Sin esto, Lambda crea el grupo sola: sin vencimiento y fuera de Terraform,
+# así que el destroy no lo borra.
+resource "aws_cloudwatch_log_group" "lambda" {
+  #checkov:skip=CKV_AWS_158:Cifrado con la llave de CloudWatch; una llave propia cuesta 1 USD al mes.
+  for_each          = local.functions
+  name              = "/aws/lambda/${var.prefix}-${each.key}"
+  retention_in_days = 365
+}
+
 resource "aws_lambda_function" "this" {
   #checkov:skip=CKV_AWS_117:Las Lambdas van fuera de la VPC (diagrama, etiqueta 9): así no necesitan NAT.
   #checkov:skip=CKV_AWS_116:Ninguna se invoca en modo asíncrono: la API espera la respuesta y las colas ya tienen su DLQ.
@@ -179,6 +188,7 @@ resource "aws_lambda_function" "this" {
   filename         = data.archive_file.bundle.output_path
   source_code_hash = data.archive_file.bundle.output_base64sha256
   layers           = each.key == "streaming" && var.ffmpeg_layer_arn != "" ? [var.ffmpeg_layer_arn] : []
+  depends_on       = [aws_cloudwatch_log_group.lambda] # el grupo existe antes de que la Lambda escriba
 
   environment {
     variables = merge(var.environment, each.key == "streaming" ? { PATH = "/opt/bin:/usr/local/bin:/usr/bin:/bin" } : {})
