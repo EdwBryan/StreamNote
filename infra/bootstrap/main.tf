@@ -590,8 +590,7 @@ resource "aws_iam_role_policy_attachment" "deploy" {
 }
 
 # 5) Presupuestos: avisan por correo antes de que el gasto se pase de lo planeado.
-#    Se crearon a mano en la consola; los bloques import los traen al estado y, como cambia
-#    el nombre, Terraform los reemplaza por unos iguales con el nombre del proyecto.
+#    (Antes estaban hechos a mano en la consola; se importaron una vez y se reemplazaron por estos.)
 variable "correos_alertas" {
   description = "Correos del equipo que reciben los avisos. Se pasan con TF_VAR_correos_alertas='[\"a@x.com\",\"b@y.com\"]': no van en el repo"
   type        = list(string)
@@ -600,16 +599,6 @@ variable "correos_alertas" {
     condition     = length(var.correos_alertas) >= 1 && length(var.correos_alertas) <= 10 # AWS admite hasta 10 por aviso
     error_message = "Pon entre 1 y 10 correos."
   }
-}
-
-import {
-  to = aws_budgets_budget.mensual
-  id = "${local.account}:My Monthly Cost Budget"
-}
-
-import {
-  to = aws_budgets_budget.diario
-  id = "${local.account}:PresupuestoS9StreamNote"
 }
 
 # 10 USD al mes para toda la cuenta: avisa al 85 % y al 100 % de lo gastado, y si el pronóstico pasa el 100 %
